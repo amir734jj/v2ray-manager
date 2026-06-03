@@ -11,15 +11,17 @@ services:
       - sh
       - -c
       - |
-        if [ -f /cfg/server.json ]; then
+        if [ -f /cfg/server.json ] && [ -s /cfg/server.json ]; then
           echo "server.json already exists, skipping."
         elif [ -z "$V2RAY_UUID" ]; then
           echo "ERROR: V2RAY_UUID is required" >&2
           exit 1
         else
           sed "s/00000000-0000-0000-0000-000000000000/$V2RAY_UUID/g" \
-            /templates/server.template.json > /cfg/server.json
-          echo "Generated server.json with UUID $V2RAY_UUID"
+            /templates/server.template.json > /cfg/server.json.tmp \
+            && mv /cfg/server.json.tmp /cfg/server.json \
+            && echo "Generated server.json with UUID $V2RAY_UUID" \
+            || { rm -f /cfg/server.json.tmp; echo "ERROR: failed to generate server.json" >&2; exit 1; }
         fi
 
   v2ray:
