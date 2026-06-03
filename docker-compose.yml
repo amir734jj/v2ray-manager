@@ -1,6 +1,6 @@
 services:
   init:
-    image: alpine
+    image: node:22-alpine
     restart: "no"
     environment:
       - V2RAY_UUID
@@ -12,6 +12,8 @@ services:
     volumes:
       - v2ray-cfg:/cfg
     configs:
+      - source: init_script
+        target: /init.mjs
       - source: server_template
         target: /templates/server.template.json
       - source: vless_template
@@ -22,41 +24,7 @@ services:
         target: /templates/trojan.template.json
       - source: client_template
         target: /templates/client.template.json
-    command:
-      - sh
-      - -c
-      - |
-        # ── Generate server.json ──────────────────────────────────────────────
-        if [ -f /cfg/server.json ] && [ -s /cfg/server.json ]; then
-          echo "server.json already exists, skipping."
-        elif [ -z "$V2RAY_UUID" ]; then
-          echo "ERROR: V2RAY_UUID is required" >&2; exit 1
-        else
-          sed "s/00000000-0000-0000-0000-000000000000/$V2RAY_UUID/g" \
-            /templates/server.template.json > /cfg/server.json.tmp \
-            && mv /cfg/server.json.tmp /cfg/server.json \
-            && echo "Generated server.json with UUID $V2RAY_UUID" \
-            || { rm -f /cfg/server.json.tmp; echo "ERROR: failed to generate server.json" >&2; exit 1; }
-        fi
-
-        # ── Upload client configs to FTP (if FTP_HOST is set) ────────────────
-        if [ -n "$FTP_HOST" ]; then
-          apk add --no-cache curl >/dev/null 2>&1
-          HOST="${V2RAY_HOST:-YOUR_SERVER_IP}"
-          FTP_BASE="ftp://$FTP_HOST${FTP_PATH:-/}"
-          for proto in vless vmess trojan client; do
-            tmpl="/templates/${proto}.template.json"
-            [ -f "$tmpl" ] || continue
-            out="/tmp/${proto}.json"
-            sed -e "s/00000000-0000-0000-0000-000000000000/$V2RAY_UUID/g" \
-                -e "s/YOUR_SERVER_IP/$HOST/g" \
-                "$tmpl" > "$out"
-            curl -s -T "$out" "${FTP_BASE}${proto}.json" \
-              --user "$FTP_USER:$FTP_PASS" \
-              && echo "Uploaded ${proto}.json to FTP" \
-              || echo "WARNING: failed to upload ${proto}.json"
-          done
-        fi
+    command: node /init.mjs
 
   v2ray:
     image: v2fly/v2fly-core
@@ -77,6 +45,8 @@ volumes:
   v2ray-cfg:
 
 configs:
+  init_script:
+    file: ./init.mjs
   server_template:
     file: ./templates/server.template.json
   vless_template:
