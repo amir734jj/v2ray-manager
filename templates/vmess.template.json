@@ -1,0 +1,61 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": { "udp": true }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vmess",
+      "settings": {
+        "vnext": [
+          {
+            "address": "YOUR_SERVER_IP",
+            "port": 53218,
+            "users": [
+              {
+                "id": "00000000-0000-0000-0000-000000000000",
+                "alterId": 0,
+                "security": "auto"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "none",
+        "tcpSettings": {
+          "connectionReuse": true,
+          "header": {
+            "type": "http",
+            "request": {
+              "version": "1.1",
+              "method": "GET",
+              "path": ["/"],
+              "headers": {
+                "Host": ["www.bing.com"],
+                "User-Agent": ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"],
+                "Accept-Encoding": ["gzip, deflate"],
+                "Connection": ["keep-alive"],
+                "Pragma": ["no-cache"]
+              }
+            }
+          }
+        }
+      },
+      "mux": { "enabled": false }
+    },
+    { "tag": "direct",  "protocol": "freedom" },
+    { "tag": "blocked", "protocol": "blackhole" }
+  ],
+  "dns": { "servers": ["1.1.1.1", "8.8.8.8"] },
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [{ "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }]
+  }
+}

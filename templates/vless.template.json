@@ -1,0 +1,39 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": { "udp": true }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "YOUR_SERVER_IP",
+            "port": 53217,
+            "users": [
+              {
+                "id": "00000000-0000-0000-0000-000000000000",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": { "network": "tcp", "security": "none" },
+      "mux": { "enabled": false }
+    },
+    { "tag": "direct",  "protocol": "freedom" },
+    { "tag": "blocked", "protocol": "blackhole" }
+  ],
+  "dns": { "servers": ["1.1.1.1", "8.8.8.8"] },
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [{ "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }]
+  }
+}

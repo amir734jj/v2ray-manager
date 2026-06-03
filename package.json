@@ -1,0 +1,13 @@
+{
+  "name": "v2ray-manager",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "rotate": "node rotate-id.mjs",
+    "clean": "rm -f v2ray-all/server.json v2ray-all/client.json && rm -rf vless vmess trojan && mkdir vless vmess trojan && echo Cleaned."
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "v2ray-tools": "github:amir734jj/v2ray-tools"
+  }
+}
