@@ -10,8 +10,18 @@ services:
       - FTP_PASS
       - FTP_PATH
     volumes:
-      - ./templates:/templates:ro
       - v2ray-cfg:/cfg
+    configs:
+      - source: server_template
+        target: /templates/server.template.json
+      - source: vless_template
+        target: /templates/vless.template.json
+      - source: vmess_template
+        target: /templates/vmess.template.json
+      - source: trojan_template
+        target: /templates/trojan.template.json
+      - source: client_template
+        target: /templates/client.template.json
     command:
       - sh
       - -c
@@ -65,3 +75,15 @@ services:
 
 volumes:
   v2ray-cfg:
+
+configs:
+  server_template:
+    file: ./templates/server.template.json
+  vless_template:
+    file: ./templates/vless.template.json
+  vmess_template:
+    file: ./templates/vmess.template.json
+  trojan_template:
+    file: ./templates/trojan.template.json
+  client_template:
+    file: ./templates/client.template.json
