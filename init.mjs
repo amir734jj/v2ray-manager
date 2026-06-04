@@ -49,10 +49,14 @@ if (FTP_HOST) {
     writeFileSync(outPath, config);
 
     try {
-      execSync(`curl -s -T "${outPath}" "${ftpBase}${proto}.json" --user "${FTP_USER}:${FTP_PASS}"`, { stdio: 'pipe' });
+      const result = execSync(
+        `curl -v --ftp-create-dirs -T "${outPath}" "${ftpBase}${proto}.json" --user "${FTP_USER}:${FTP_PASS}" --connect-timeout 10 --max-time 30 2>&1`,
+        { stdio: 'pipe' }
+      );
       console.log(`Uploaded ${proto}.json to FTP`);
     } catch (err) {
-      console.warn(`WARNING: failed to upload ${proto}.json — ${err.stderr?.toString().trim() || err.stdout?.toString().trim() || err.message}`);
+      const output = (err.stderr?.toString() || '') + (err.stdout?.toString() || '');
+      console.warn(`WARNING: failed to upload ${proto}.json (exit ${err.status})\n${output}`);
     }
   }
 }
