@@ -35,6 +35,7 @@ if (FTP_HOST) {
 
   const host = V2RAY_HOST || 'YOUR_SERVER_IP';
   const ftpBase = `ftp://${FTP_HOST}${FTP_PATH || '/'}`;
+  console.log(`FTP target: ${ftpBase} (user: ${FTP_USER})`);
 
   for (const proto of ['vless', 'vmess', 'trojan', 'client']) {
     const tmplPath = `/templates/${proto}.template.json`;
@@ -50,8 +51,8 @@ if (FTP_HOST) {
     try {
       execSync(`curl -s -T "${outPath}" "${ftpBase}${proto}.json" --user "${FTP_USER}:${FTP_PASS}"`, { stdio: 'pipe' });
       console.log(`Uploaded ${proto}.json to FTP`);
-    } catch {
-      console.warn(`WARNING: failed to upload ${proto}.json`);
+    } catch (err) {
+      console.warn(`WARNING: failed to upload ${proto}.json — ${err.stderr?.toString().trim() || err.stdout?.toString().trim() || err.message}`);
     }
   }
 }
