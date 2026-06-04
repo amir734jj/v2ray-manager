@@ -11,19 +11,8 @@ services:
       - FTP_PATH
     volumes:
       - v2ray-cfg:/cfg
-    configs:
-      - source: init_script
-        target: /init.mjs
-      - source: server_template
-        target: /templates/server.template.json
-      - source: vless_template
-        target: /templates/vless.template.json
-      - source: vmess_template
-        target: /templates/vmess.template.json
-      - source: trojan_template
-        target: /templates/trojan.template.json
-      - source: client_template
-        target: /templates/client.template.json
+      - ./init.mjs:/init.mjs:ro
+      - ./templates:/templates:ro
     command: node /init.mjs
 
   v2ray:
@@ -45,8 +34,8 @@ services:
         echo "Waiting for /cfg/server.json..."
         i=0
         while [ ! -s /cfg/server.json ]; do
-          i=$((i+1))
-          if [ $i -ge 30 ]; then
+          i=$$((i+1))
+          if [ $$i -ge 30 ]; then
             echo "ERROR: /cfg/server.json still empty after 30s"
             exit 1
           fi
@@ -57,17 +46,3 @@ services:
 
 volumes:
   v2ray-cfg:
-
-configs:
-  init_script:
-    file: ./init.mjs
-  server_template:
-    file: ./templates/server.template.json
-  vless_template:
-    file: ./templates/vless.template.json
-  vmess_template:
-    file: ./templates/vmess.template.json
-  trojan_template:
-    file: ./templates/trojan.template.json
-  client_template:
-    file: ./templates/client.template.json
