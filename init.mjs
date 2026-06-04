@@ -1,5 +1,4 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync, renameSync, unlinkSync } from 'fs';
-import { writeFile } from 'fs/promises';
 import { execSync } from 'child_process';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -44,12 +43,7 @@ if (FTP_HOST) {
   const ftpBase = `ftp://${FTP_HOST}${FTP_PATH || '/'}`;
   console.log(`FTP target: ${ftpBase} (user: ${FTP_USER})`);
 
-  // Write a patched server config with the real host so v2ray-tools URLs
-  // contain the correct address instead of 0.0.0.0
   const serverJson = JSON.parse(readFileSync(cfgPath, 'utf8'));
-  for (const inbound of serverJson.inbounds) inbound.listen = serverHost;
-  const patchedPath = join(tmpdir(), 'server-patched.json');
-  writeFileSync(patchedPath, JSON.stringify(serverJson, null, 2));
 
   // Build a VMess client outbound config for config2vmess (it reads outbounds)
   const vmessInbound = serverJson.inbounds.find(i => i.protocol === 'vmess');
@@ -77,10 +71,9 @@ if (FTP_HOST) {
   }
 
   const [vlessUrl, trojanUrl] = await Promise.all([
-    config2vless({ path: patchedPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'vless')?.tag }),
-    config2trojan({ path: patchedPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'trojan')?.tag }),
+    config2vless({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'vless')?.tag, address: serverHost }),
+    config2trojan({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'trojan')?.tag, address: serverHost }),
   ]);
-  try { unlinkSync(patchedPath); } catch {}
 
   const entries = [
     { dir: 'vless',  url: vlessUrl,  templateName: 'vless'  },

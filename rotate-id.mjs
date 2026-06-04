@@ -106,23 +106,11 @@ async function main() {
   const [vmessInbound]  = config.inbounds.filter(i => i.protocol === 'vmess');
   const [trojanInbound] = config.inbounds.filter(i => i.protocol === 'trojan');
 
-  // Patch listen address so library-generated URLs use the real host
-  const patchedConfig = JSON.parse(JSON.stringify(config));
-  for (const inbound of patchedConfig.inbounds) {
-    inbound.listen = serverHost;
-  }
-  delete patchedConfig._resolvedHost;
-
-  const patchedPath = join(tmpdir(), `v2ray-server-patched-${Date.now()}.json`);
-  await writeFile(patchedPath, JSON.stringify(patchedConfig, null, 2));
-
   const [vlessUrl, trojanUrl, vmessUrl] = await Promise.all([
-    config2vless ({ path: patchedPath, inboundTag: vlessInbound?.tag }),
-    config2trojan({ path: patchedPath, inboundTag: trojanInbound?.tag }),
+    config2vless ({ path: serverPath, inboundTag: vlessInbound?.tag, address: serverHost }),
+    config2trojan({ path: serverPath, inboundTag: trojanInbound?.tag, address: serverHost }),
     makeVmessUrl(config, vmessInbound),
   ]);
-
-  await unlink(patchedPath).catch(() => {});
 
   const entries = [
     { dir: 'vless',  label: 'VLESS',     url: vlessUrl  },
