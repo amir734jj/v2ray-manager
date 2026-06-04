@@ -1,0 +1,4 @@
+FROM node:22-alpine
+COPY init.mjs /init.mjs
+COPY templates/ /templates/
+CMD ["node", "/init.mjs"]
