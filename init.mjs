@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, renameSync, unlinkSync } from 'fs';
-import { readFile, writeFile, unlink } from 'fs/promises';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync, renameSync, unlinkSync } from 'fs';
+import { writeFile } from 'fs/promises';
 import { execSync } from 'child_process';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -9,33 +9,6 @@ import config2vless from 'v2ray-tools/src/utils/config2vless.js';
 import config2trojan from 'v2ray-tools/src/utils/config2trojan.js';
 
 const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-async function makeVmessUrl(serverConfig, inbound) {
-  const { port, streamSettings, settings } = inbound;
-  const [client] = settings.clients;
-  const host = serverConfig._resolvedHost;
-  const clientConfig = {
-    outbounds: [{
-      tag: inbound.tag ?? `vmess-${port}`,
-      protocol: 'vmess',
-      settings: {
-        vnext: [{
-          address: host, port,
-          users: [{ id: client.id, alterId: client.alterId ?? 0, security: 'auto' }],
-        }],
-      },
-      streamSettings,
-    }],
-  };
-  const tmpPath = join(tmpdir(), `vmess-client-${Date.now()}.json`);
-  await writeFile(tmpPath, JSON.stringify(clientConfig, null, 2));
-  try {
-    return await config2vmess({ path: tmpPath });
-  } finally {
-    await unlink(tmpPath).catch(() => {});
-  }
-}
 
 // ── Generate server.json ─────────────────────────────────────────────────────
 const cfgPath = '/cfg/server.json';
@@ -63,7 +36,7 @@ if (existsSync(cfgPath) && statSync(cfgPath).size > 0) {
   }
 }
 
-// ── Generate client folders and upload to FTP ───────────────────────────────
+// ── Generate client folders & upload to FTP ─────────────────────────────────
 if (FTP_HOST) {
   execSync('apk add --no-cache curl', { stdio: 'ignore' });
 
@@ -71,32 +44,43 @@ if (FTP_HOST) {
   const ftpBase = `ftp://${FTP_HOST}${FTP_PATH || '/'}`;
   console.log(`FTP target: ${ftpBase} (user: ${FTP_USER})`);
 
-  // Parse the generated server config to extract inbounds
+  // Write a patched server config with the real host so v2ray-tools URLs
+  // contain the correct address instead of 0.0.0.0
   const serverJson = JSON.parse(readFileSync(cfgPath, 'utf8'));
-  serverJson._resolvedHost = serverHost;
+  for (const inbound of serverJson.inbounds) inbound.listen = serverHost;
+  const patchedPath = join(tmpdir(), 'server-patched.json');
+  writeFileSync(patchedPath, JSON.stringify(serverJson, null, 2));
 
-  const [vlessInbound]  = serverJson.inbounds.filter(i => i.protocol === 'vless');
-  const [vmessInbound]  = serverJson.inbounds.filter(i => i.protocol === 'vmess');
-  const [trojanInbound] = serverJson.inbounds.filter(i => i.protocol === 'trojan');
+  // Build a VMess client outbound config for config2vmess (it reads outbounds)
+  const vmessInbound = serverJson.inbounds.find(i => i.protocol === 'vmess');
+  const vmessClient = vmessInbound ? {
+    outbounds: [{
+      tag: vmessInbound.tag ?? `vmess-${vmessInbound.port}`,
+      protocol: 'vmess',
+      settings: {
+        vnext: [{
+          address: serverHost,
+          port: vmessInbound.port,
+          users: [{ id: vmessInbound.settings.clients[0].id, alterId: vmessInbound.settings.clients[0].alterId ?? 0, security: 'auto' }],
+        }],
+      },
+      streamSettings: vmessInbound.streamSettings,
+    }],
+  } : null;
 
-  // Patch listen address so library-generated URLs use the real host
-  const patchedConfig = JSON.parse(JSON.stringify(serverJson));
-  for (const inbound of patchedConfig.inbounds) inbound.listen = serverHost;
-  delete patchedConfig._resolvedHost;
-
-  const patchedPath = join(tmpdir(), `v2ray-server-patched-${Date.now()}.json`);
-  writeFileSync(patchedPath, JSON.stringify(patchedConfig, null, 2));
-
-  let vlessUrl, vmessUrl, trojanUrl;
-  try {
-    [vlessUrl, trojanUrl, vmessUrl] = await Promise.all([
-      config2vless ({ path: patchedPath, inboundTag: vlessInbound?.tag }),
-      config2trojan({ path: patchedPath, inboundTag: trojanInbound?.tag }),
-      makeVmessUrl(serverJson, vmessInbound),
-    ]);
-  } finally {
-    try { unlinkSync(patchedPath); } catch {}
+  let vmessUrl = false;
+  if (vmessClient) {
+    const vmessPath = join(tmpdir(), 'vmess-client.json');
+    writeFileSync(vmessPath, JSON.stringify(vmessClient, null, 2));
+    vmessUrl = await config2vmess({ path: vmessPath });
+    try { unlinkSync(vmessPath); } catch {}
   }
+
+  const [vlessUrl, trojanUrl] = await Promise.all([
+    config2vless({ path: patchedPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'vless')?.tag }),
+    config2trojan({ path: patchedPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'trojan')?.tag }),
+  ]);
+  try { unlinkSync(patchedPath); } catch {}
 
   const entries = [
     { dir: 'vless',  url: vlessUrl,  templateName: 'vless'  },
@@ -106,6 +90,7 @@ if (FTP_HOST) {
 
   // Generate each folder: client.json, connection.txt, qr.png
   for (const { dir, url, templateName } of entries) {
+    if (!url) { console.log(`Skipping ${dir}/ (no URL generated)`); continue; }
     const outDir = `/tmp/${dir}`;
     mkdirSync(outDir, { recursive: true });
 
@@ -126,55 +111,30 @@ if (FTP_HOST) {
       writeFileSync(join(outDir, 'client.json'), JSON.stringify(clientJson, null, 2) + '\n');
     }
 
-    // connection.txt
     writeFileSync(join(outDir, 'connection.txt'), url + '\n');
-
-    // qr.png
     await QRCode.toFile(join(outDir, 'qr.png'), url, { type: 'png', width: 512, margin: 2 });
-
     console.log(`Generated ${dir}/  (client.json, connection.txt, qr.png)`);
   }
 
-  // Also generate the combined client.json
-  const combinedTmpl = '/app/templates/client.template.json';
-  if (existsSync(combinedTmpl)) {
-    const clientJson = JSON.parse(readFileSync(combinedTmpl, 'utf8'));
-    for (const outbound of clientJson.outbounds ?? []) {
-      for (const next of outbound.settings?.vnext ?? []) {
-        next.address = serverHost;
-        for (const user of next.users ?? []) { if (user.id) user.id = V2RAY_UUID; }
-      }
-      for (const server of outbound.settings?.servers ?? []) {
-        server.address = serverHost;
-        if (server.password) server.password = V2RAY_UUID;
-      }
-    }
-    writeFileSync('/tmp/client.json', JSON.stringify(clientJson, null, 2) + '\n');
-    console.log('Generated client.json (combined)');
-  }
-
-  // Upload all files to FTP
-  const filesToUpload = [];
+  // Upload all generated files to FTP
   for (const dir of ['vless', 'vmess', 'trojan']) {
-    for (const file of ['client.json', 'connection.txt', 'qr.png']) {
-      const localPath = `/tmp/${dir}/${file}`;
-      if (existsSync(localPath)) filesToUpload.push({ local: localPath, remote: `${dir}/${file}` });
-    }
-  }
-  if (existsSync('/tmp/client.json')) {
-    filesToUpload.push({ local: '/tmp/client.json', remote: 'client.json' });
-  }
+    const dirPath = `/tmp/${dir}`;
+    if (!existsSync(dirPath)) continue;
 
-  for (const { local, remote } of filesToUpload) {
-    try {
-      execSync(
-        `curl -v --ftp-create-dirs -T "${local}" "${ftpBase}${remote}" --user "${FTP_USER}:${FTP_PASS}" --connect-timeout 10 --max-time 30 2>&1`,
-        { stdio: 'pipe' }
-      );
-      console.log(`Uploaded ${remote}`);
-    } catch (err) {
-      const output = (err.stderr?.toString() || '') + (err.stdout?.toString() || '');
-      console.warn(`WARNING: failed to upload ${remote} (exit ${err.status})\n${output}`);
+    for (const file of readdirSync(dirPath)) {
+      const localPath = join(dirPath, file);
+      if (!statSync(localPath).isFile()) continue;
+
+      try {
+        execSync(
+          `curl -v --ftp-create-dirs -T "${localPath}" "${ftpBase}${dir}/${file}" --user "${FTP_USER}:${FTP_PASS}" --connect-timeout 10 --max-time 30 2>&1`,
+          { stdio: 'pipe' }
+        );
+        console.log(`Uploaded ${dir}/${file}`);
+      } catch (err) {
+        const output = (err.stderr?.toString() || '') + (err.stdout?.toString() || '');
+        console.warn(`WARNING: failed to upload ${dir}/${file} (exit ${err.status})\n${output}`);
+      }
     }
   }
 }
