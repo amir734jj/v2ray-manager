@@ -1,7 +1,8 @@
 FROM node:22-alpine
+RUN apk add --no-cache git
 WORKDIR /app
-COPY package.json /app/
-RUN npm install --omit=dev
+COPY package.json package-lock.json /app/
+RUN npm ci --omit=dev
 COPY init.mjs /app/
 COPY templates/ /app/templates/
 CMD ["node", "/app/init.mjs"]
