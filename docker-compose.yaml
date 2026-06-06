@@ -7,10 +7,10 @@ services:
     environment:
       - V2RAY_UUID=${V2RAY_UUID}
       - V2RAY_HOST=${V2RAY_HOST:-}
-      - FTP_HOST=${FTP_HOST:-}
-      - FTP_USER=${FTP_USER:-}
-      - FTP_PASS=${FTP_PASS:-}
-      - FTP_PATH=${FTP_PATH:-}
+      - FTP_HOST=${FTP_HOST}
+      - FTP_USER=${FTP_USER}
+      - FTP_PASS=${FTP_PASS}
+      - FTP_PATH=${FTP_PATH}
     volumes:
       - v2ray-cfg:/cfg
 
