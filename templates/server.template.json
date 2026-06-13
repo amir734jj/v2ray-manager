@@ -135,14 +135,5 @@
       "tag": "blocked",
       "protocol": "blackhole"
     }
-  ],
-  "router": {
-    "rule": [
-      {
-        "type": "field",
-        "ip": ["geoip:private"],
-        "outboundTag": "direct"
-      }
-    ]
-  }
+  ]
 }
