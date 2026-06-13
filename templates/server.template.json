@@ -91,7 +91,7 @@
       }
     },
     {
-      "tag": "ss-53220",
+      "tag": "shadowsocks-53220",
       "listen": "0.0.0.0",
       "port": 53220,
       "protocol": "shadowsocks",
