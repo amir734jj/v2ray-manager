@@ -137,7 +137,6 @@
     }
   ],
   "router": {
-    "domainStrategy": "IPIfNonMatch",
     "rule": [
       {
         "type": "field",
