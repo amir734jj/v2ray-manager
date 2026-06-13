@@ -14,27 +14,23 @@ const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = proce
 // ── Generate server.json ─────────────────────────────────────────────────────
 const cfgPath = '/cfg/server.json';
 
-if (existsSync(cfgPath) && statSync(cfgPath).size > 0) {
-  console.log('server.json already exists, skipping.');
-} else {
-  if (!V2RAY_UUID) {
-    console.error('ERROR: V2RAY_UUID is required');
-    process.exit(1);
-  }
+if (!V2RAY_UUID) {
+  console.error('ERROR: V2RAY_UUID is required');
+  process.exit(1);
+}
 
-  const template = readFileSync('/app/templates/server.template.json', 'utf8');
-  const config = template.replaceAll('00000000-0000-0000-0000-000000000000', V2RAY_UUID);
-  const tmpPath = `${cfgPath}.tmp`;
+const template = readFileSync('/app/templates/server.template.json', 'utf8');
+const config = template.replaceAll('00000000-0000-0000-0000-000000000000', V2RAY_UUID);
+const tmpPath = `${cfgPath}.tmp`;
 
-  try {
-    writeFileSync(tmpPath, config);
-    renameSync(tmpPath, cfgPath);
-    console.log(`Generated server.json with UUID ${V2RAY_UUID}`);
-  } catch (err) {
-    try { unlinkSync(tmpPath); } catch {}
-    console.error('ERROR: failed to generate server.json:', err.message);
-    process.exit(1);
-  }
+try {
+  writeFileSync(tmpPath, config);
+  renameSync(tmpPath, cfgPath);
+  console.log(`Generated server.json with UUID ${V2RAY_UUID}`);
+} catch (err) {
+  try { unlinkSync(tmpPath); } catch {}
+  console.error('ERROR: failed to generate server.json:', err.message);
+  process.exit(1);
 }
 
 // ── Generate client folders & upload to FTP ─────────────────────────────────
