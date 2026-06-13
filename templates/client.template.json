@@ -96,6 +96,25 @@
       "mux": { "enabled": false }
     },
     {
+      "tag": "shadowsocks",
+      "protocol": "shadowsocks",
+      "settings": {
+        "servers": [
+          {
+            "address": "YOUR_SERVER_IP",
+            "port": 53220,
+            "method": "aes-256-gcm",
+            "password": "00000000-0000-0000-0000-000000000000"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "none"
+      },
+      "mux": { "enabled": false }
+    },
+    {
       "tag": "direct",
       "protocol": "freedom"
     },

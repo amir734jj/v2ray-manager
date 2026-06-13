@@ -6,6 +6,8 @@ import QRCode from 'qrcode';
 import config2vmess from 'v2ray-tools/src/utils/config2vmess.js';
 import config2vless from 'v2ray-tools/src/utils/config2vless.js';
 import config2trojan from 'v2ray-tools/src/utils/config2trojan.js';
+import config2shadowsocks from 'v2ray-tools/src/utils/config2shadowsocks.js';
+import config2hysteria2 from 'v2ray-tools/src/utils/config2hysteria2.js';
 
 const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
 
@@ -37,7 +39,6 @@ if (existsSync(cfgPath) && statSync(cfgPath).size > 0) {
 
 // ── Generate client folders & upload to FTP ─────────────────────────────────
 if (FTP_HOST) {
-  execSync('apk add --no-cache curl', { stdio: 'ignore' });
 
   const serverHost = V2RAY_HOST || 'YOUR_SERVER_IP';
   const ftpBase = `ftp://${FTP_HOST}${FTP_PATH || '/'}`;
@@ -45,7 +46,7 @@ if (FTP_HOST) {
 
   const serverJson = JSON.parse(readFileSync(cfgPath, 'utf8'));
 
-  // Build a VMess client outbound config for config2vmess (it reads outbounds)
+  // Build a VMess client outbound config for config2vmess (it reads outbounds in v4 format)
   const vmessInbound = serverJson.inbounds.find(i => i.protocol === 'vmess');
   const vmessClient = vmessInbound ? {
     outbounds: [{
@@ -58,6 +59,7 @@ if (FTP_HOST) {
           users: [{ id: vmessInbound.settings.clients[0].id, alterId: vmessInbound.settings.clients[0].alterId ?? 0, security: 'auto' }],
         }],
       },
+      // Pass v5 streamSettings directly — config2vmess understands both v4 and v5 format
       streamSettings: vmessInbound.streamSettings,
     }],
   } : null;
@@ -70,15 +72,19 @@ if (FTP_HOST) {
     try { unlinkSync(vmessPath); } catch {}
   }
 
-  const [vlessUrl, trojanUrl] = await Promise.all([
+  const [vlessUrl, trojanUrl, ssUrl, hy2Url] = await Promise.all([
     config2vless({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'vless')?.tag, address: serverHost }),
     config2trojan({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'trojan')?.tag, address: serverHost }),
+    config2shadowsocks({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'shadowsocks')?.tag, address: serverHost }),
+    config2hysteria2({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'hysteria2')?.tag, address: serverHost }),
   ]);
 
   const entries = [
-    { dir: 'vless',  url: vlessUrl,  templateName: 'vless'  },
-    { dir: 'vmess',  url: vmessUrl,  templateName: 'vmess'  },
-    { dir: 'trojan', url: trojanUrl, templateName: 'trojan' },
+    { dir: 'vless',       url: vlessUrl,  templateName: 'vless'       },
+    { dir: 'vmess',       url: vmessUrl,  templateName: 'vmess'       },
+    { dir: 'trojan',      url: trojanUrl, templateName: 'trojan'      },
+    { dir: 'shadowsocks', url: ssUrl,     templateName: 'shadowsocks' },
+    { dir: 'hysteria2',   url: hy2Url,    templateName: 'hysteria2'   },
   ];
 
   // Generate each folder: client.json, connection.txt, qr.png
@@ -91,6 +97,7 @@ if (FTP_HOST) {
     const tmplPath = `/app/templates/${templateName}.template.json`;
     if (existsSync(tmplPath)) {
       const clientJson = JSON.parse(readFileSync(tmplPath, 'utf8'));
+      // v2ray protocol format
       for (const outbound of clientJson.outbounds ?? []) {
         for (const next of outbound.settings?.vnext ?? []) {
           next.address = serverHost;
@@ -101,6 +108,12 @@ if (FTP_HOST) {
           if (server.password) server.password = V2RAY_UUID;
         }
       }
+      // hysteria2 format
+      if (clientJson.server) {
+        const port = clientJson.server.split(':')[1];
+        clientJson.server = `${serverHost}:${port}`;
+      }
+      if (clientJson.auth) clientJson.auth = V2RAY_UUID;
       writeFileSync(join(outDir, 'client.json'), JSON.stringify(clientJson, null, 2) + '\n');
     }
 
@@ -110,7 +123,7 @@ if (FTP_HOST) {
   }
 
   // Upload all generated files to FTP
-  for (const dir of ['vless', 'vmess', 'trojan']) {
+  for (const dir of ['vless', 'vmess', 'trojan', 'shadowsocks', 'hysteria2']) {
     const dirPath = `/tmp/${dir}`;
     if (!existsSync(dirPath)) continue;
 
