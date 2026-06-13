@@ -20,7 +20,6 @@ import config2vmess                from 'v2ray-tools/src/utils/config2vmess.js';
 import config2vless                from 'v2ray-tools/src/utils/config2vless.js';
 import config2trojan               from 'v2ray-tools/src/utils/config2trojan.js';
 import config2shadowsocks          from 'v2ray-tools/src/utils/config2shadowsocks.js';
-import config2hysteria2            from 'v2ray-tools/src/utils/config2hysteria2.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 
@@ -90,10 +89,6 @@ async function main() {
     if (inbound.protocol === 'shadowsocks' && inbound.settings?.password) {
       inbound.settings.password = newId;
     }
-    // Hysteria2 has password in streamSettings.transportSettings
-    if (inbound.protocol === 'hysteria2' && inbound.streamSettings?.transportSettings?.password) {
-      inbound.streamSettings.transportSettings.password = newId;
-    }
   }
   const updatedServer = JSON.stringify(serverJson, null, 2) + '\n';
   await writeFile(serverPath, updatedServer);
@@ -116,14 +111,12 @@ async function main() {
   const [vmessInbound]  = config.inbounds.filter(i => i.protocol === 'vmess');
   const [trojanInbound] = config.inbounds.filter(i => i.protocol === 'trojan');
   const [ssInbound]     = config.inbounds.filter(i => i.protocol === 'shadowsocks');
-  const [hy2Inbound]    = config.inbounds.filter(i => i.protocol === 'hysteria2');
 
-  const [vlessUrl, trojanUrl, vmessUrl, ssUrl, hy2Url] = await Promise.all([
+  const [vlessUrl, trojanUrl, vmessUrl, ssUrl] = await Promise.all([
     config2vless ({ path: serverPath, inboundTag: vlessInbound?.tag, address: serverHost }),
     config2trojan({ path: serverPath, inboundTag: trojanInbound?.tag, address: serverHost }),
     makeVmessUrl(config, vmessInbound),
     config2shadowsocks({ path: serverPath, inboundTag: ssInbound?.tag, address: serverHost }),
-    config2hysteria2({ path: serverPath, inboundTag: hy2Inbound?.tag, address: serverHost }),
   ]);
 
   const entries = [
@@ -131,7 +124,6 @@ async function main() {
     { dir: 'vmess',       label: 'VMess-HTTP',   url: vmessUrl  },
     { dir: 'trojan',      label: 'Trojan',       url: trojanUrl },
     { dir: 'shadowsocks', label: 'Shadowsocks',  url: ssUrl     },
-    { dir: 'hysteria2',   label: 'Hysteria2',    url: hy2Url    },
   ];
 
   // --- Write connection files, QR images & print QR codes --------------------
@@ -162,14 +154,6 @@ async function main() {
           if (server.password) server.password = newId;
         }
       }
-      // hysteria2 format
-      if (clientJson.server) {
-        if (argHost) {
-          const port = clientJson.server.split(':')[1];
-          clientJson.server = `${serverHost}:${port}`;
-        }
-      }
-      if (clientJson.auth) clientJson.auth = newId;
       await writeFile(clientJsonPath, JSON.stringify(clientJson, null, 2) + '\n');
       console.log(`Updated  ${dir}/client.json`);
     }

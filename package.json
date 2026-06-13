@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "rotate": "node rotate-id.mjs",
-    "clean": "rm -f v2ray-all/server.json v2ray-all/client.json && rm -rf vless vmess trojan shadowsocks hysteria2 && mkdir vless vmess trojan shadowsocks hysteria2 && echo Cleaned."
+    "clean": "rm -f v2ray-all/server.json v2ray-all/client.json && rm -rf vless vmess trojan shadowsocks && mkdir vless vmess trojan shadowsocks && echo Cleaned."
   },
   "dependencies": {
     "qrcode": "^1.5.4",

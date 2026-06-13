@@ -7,7 +7,6 @@ import config2vmess from 'v2ray-tools/src/utils/config2vmess.js';
 import config2vless from 'v2ray-tools/src/utils/config2vless.js';
 import config2trojan from 'v2ray-tools/src/utils/config2trojan.js';
 import config2shadowsocks from 'v2ray-tools/src/utils/config2shadowsocks.js';
-import config2hysteria2 from 'v2ray-tools/src/utils/config2hysteria2.js';
 
 const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
 
@@ -68,11 +67,10 @@ if (FTP_HOST) {
     try { unlinkSync(vmessPath); } catch {}
   }
 
-  const [vlessUrl, trojanUrl, ssUrl, hy2Url] = await Promise.all([
+  const [vlessUrl, trojanUrl, ssUrl] = await Promise.all([
     config2vless({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'vless')?.tag, address: serverHost }),
     config2trojan({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'trojan')?.tag, address: serverHost }),
     config2shadowsocks({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'shadowsocks')?.tag, address: serverHost }),
-    config2hysteria2({ path: cfgPath, inboundTag: serverJson.inbounds.find(i => i.protocol === 'hysteria2')?.tag, address: serverHost }),
   ]);
 
   const entries = [
@@ -80,7 +78,6 @@ if (FTP_HOST) {
     { dir: 'vmess',       url: vmessUrl,  templateName: 'vmess'       },
     { dir: 'trojan',      url: trojanUrl, templateName: 'trojan'      },
     { dir: 'shadowsocks', url: ssUrl,     templateName: 'shadowsocks' },
-    { dir: 'hysteria2',   url: hy2Url,    templateName: 'hysteria2'   },
   ];
 
   // Generate each folder: client.json, connection.txt, qr.png
@@ -104,12 +101,6 @@ if (FTP_HOST) {
           if (server.password) server.password = V2RAY_UUID;
         }
       }
-      // hysteria2 format
-      if (clientJson.server) {
-        const port = clientJson.server.split(':')[1];
-        clientJson.server = `${serverHost}:${port}`;
-      }
-      if (clientJson.auth) clientJson.auth = V2RAY_UUID;
       writeFileSync(join(outDir, 'client.json'), JSON.stringify(clientJson, null, 2) + '\n');
     }
 
@@ -119,7 +110,7 @@ if (FTP_HOST) {
   }
 
   // Upload all generated files to FTP
-  for (const dir of ['vless', 'vmess', 'trojan', 'shadowsocks', 'hysteria2']) {
+  for (const dir of ['vless', 'vmess', 'trojan', 'shadowsocks']) {
     const dirPath = `/tmp/${dir}`;
     if (!existsSync(dirPath)) continue;
 

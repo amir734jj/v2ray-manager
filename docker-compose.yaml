@@ -28,7 +28,6 @@ services:
       - "53219:53219/tcp"
       - "53220:53220/tcp"
       - "53220:53220/udp"
-      - "53221:53221/udp"
     volumes:
       - v2ray-cfg:/cfg
     entrypoint: ["/bin/sh", "-c"]
@@ -45,7 +44,7 @@ services:
           sleep 1
         done
         echo "Config found, starting v2ray"
-        exec v2ray run -config /cfg/server.json -format jsonv5
+        exec v2ray run -config /cfg/server.json
 
 volumes:
   v2ray-cfg:
