@@ -15,8 +15,11 @@ services:
       - v2ray-cfg:/cfg
 
   v2ray:
-    image: v2fly/v2fly-core
-    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile.v2ray
+      pull: true
+    pull_policy: build
     container_name: v2ray-all
     restart: always
     depends_on:
@@ -45,6 +48,12 @@ services:
         done
         echo "Config found, starting v2ray"
         exec v2ray run -config /cfg/server.json
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1 || exit 1; for port in 53217 53218 53219 53220; do nc -z -w 2 127.0.0.1 $$port || exit 1; done"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   v2ray-cfg:
