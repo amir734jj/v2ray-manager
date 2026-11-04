@@ -28,6 +28,54 @@ export async function createDatabase(url) {
   }
 }
 
+function decodeBlockedIps(rows) {
+  if (rows.length > MAX_BLOCKED_IPS) throw new RangeError(`Blocklist is limited to ${MAX_BLOCKED_IPS} IPs`);
+  const addresses = new Set(rows.map(row => normalizeIp(row.ip)));
+  if (addresses.size !== rows.length) throw new Error('Database contains equivalent duplicate IP addresses');
+  return addresses;
+}
+
+async function loadBlockedIps(BlockedIp, transaction) {
+  const rows = await BlockedIp.findAll({
+    attributes: ['ip'],
+    limit: MAX_BLOCKED_IPS + 1,
+    raw: true,
+    transaction,
+  });
+  return decodeBlockedIps(rows);
+}
+
+async function changeBlockedIp(state, value, adding) {
+  const ip = normalizeIp(value);
+  if (state.busy) throw Object.assign(new Error('Another blocklist update is in progress; retry shortly'), { status: 409 });
+  state.busy = true;
+  try {
+    const next = await state.database.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async transaction => {
+      const addresses = await loadBlockedIps(state.BlockedIp, transaction);
+      if (adding) {
+        if (!addresses.has(ip) && addresses.size >= MAX_BLOCKED_IPS) {
+          throw new RangeError(`Blocklist is limited to ${MAX_BLOCKED_IPS} IPs`);
+        }
+        if (!addresses.has(ip)) await state.BlockedIp.create({ ip }, { transaction });
+        addresses.add(ip);
+      } else {
+        await state.BlockedIp.destroy({ where: { ip }, transaction });
+        addresses.delete(ip);
+      }
+      return addresses;
+    });
+    state.blocked = next;
+    return ip;
+  } catch (error) {
+    if (error.original?.code === '40001') {
+      throw Object.assign(new Error('Another blocklist update conflicted; retry shortly', { cause: error }), { status: 409 });
+    }
+    throw error;
+  } finally {
+    state.busy = false;
+  }
+}
+
 async function createBlocklist(database) {
   const BlockedIp = database.define('BlockedIp', {
     ip: { type: DataTypes.INET, primaryKey: true },
@@ -51,59 +99,12 @@ async function createBlocklist(database) {
   } catch (error) {
     if (error.original?.code !== '42710') throw error;
   }
-  function decode(rows) {
-    if (rows.length > MAX_BLOCKED_IPS) throw new RangeError(`Blocklist is limited to ${MAX_BLOCKED_IPS} IPs`);
-    const addresses = new Set(rows.map(row => normalizeIp(row.ip)));
-    if (addresses.size !== rows.length) throw new Error('Database contains equivalent duplicate IP addresses');
-    return addresses;
-  }
-  async function load(transaction) {
-    const rows = await BlockedIp.findAll({
-      attributes: ['ip'],
-      limit: MAX_BLOCKED_IPS + 1,
-      raw: true,
-      transaction,
-    });
-    return decode(rows);
-  }
-  let blocked = await load();
-  let busy = false;
-
-  async function change(value, adding) {
-    const ip = normalizeIp(value);
-    if (busy) throw Object.assign(new Error('Another blocklist update is in progress; retry shortly'), { status: 409 });
-    busy = true;
-    try {
-      const next = await database.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async transaction => {
-        const addresses = await load(transaction);
-        if (adding) {
-          if (!addresses.has(ip) && addresses.size >= MAX_BLOCKED_IPS) {
-            throw new RangeError(`Blocklist is limited to ${MAX_BLOCKED_IPS} IPs`);
-          }
-          if (!addresses.has(ip)) await BlockedIp.create({ ip }, { transaction });
-          addresses.add(ip);
-        } else {
-          await BlockedIp.destroy({ where: { ip }, transaction });
-          addresses.delete(ip);
-        }
-        return addresses;
-      });
-      blocked = next;
-      return ip;
-    } catch (error) {
-      if (error.original?.code === '40001') {
-        throw Object.assign(new Error('Another blocklist update conflicted; retry shortly', { cause: error }), { status: 409 });
-      }
-      throw error;
-    } finally {
-      busy = false;
-    }
-  }
+  const state = { database, BlockedIp, blocked: await loadBlockedIps(BlockedIp), busy: false };
 
   return {
-    list: () => [...blocked].sort(),
-    has: value => blocked.has(normalizeIp(value)),
-    block: value => change(value, true),
-    unblock: value => change(value, false),
+    list: () => [...state.blocked].sort(),
+    has: value => state.blocked.has(normalizeIp(value)),
+    block: value => changeBlockedIp(state, value, true),
+    unblock: value => changeBlockedIp(state, value, false),
   };
 }
