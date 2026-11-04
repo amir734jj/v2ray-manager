@@ -26,6 +26,7 @@ function Counters({ rows, countries = false }) {
 export default function Status({ user }) {
   const { data: status, error: refreshError, loading, refresh } = useResource('/api/status.json');
   const [expandedIp, setExpandedIp] = useState(new URLSearchParams(location.search).get('client'));
+  const [showHistory, setShowHistory] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -68,7 +69,6 @@ export default function Status({ user }) {
             <p>{label}</p><strong class="fs-2">{value}</strong>
           </div></div></div>)}
       </section>
-      <ResourceCharts />
       <h2 class="h4">Proxy throughput</h2>
       <p class="text-body-secondary">Average over the latest five-second sample, measured at the gateway socket.</p>
       <section class="row g-3 mb-4" aria-label="Proxy throughput">
@@ -77,6 +77,13 @@ export default function Status({ user }) {
             <p>{label}</p><strong class="fs-2"><Rate value={value} /></strong>
           </div></div></div>)}
       </section>
+      <button class="btn btn-outline-secondary mb-4" aria-expanded={showHistory}
+        aria-controls="resource-history" onClick={() => setShowHistory(visible => !visible)}>
+        {showHistory ? 'Hide history graphs' : 'Show history graphs'}
+      </button>
+      <div id="resource-history" hidden={!showHistory}>
+        {showHistory && <ResourceCharts />}
+      </div>
       <Counters rows={status.connections} />
       <h2 class="h4 mt-4" id="active-clients">Active clients by IP</h2>
       {status.clientDetails.omitted > 0 && <div class="alert alert-warning" role="status">

@@ -210,7 +210,10 @@ apply locally generated files.
   additive. The dashboard shows RSS and used/allocated JavaScript heap in
   binary units. These metrics cover only the gateway process, not total
   host/container resources, PostgreSQL, or V2Ray.
-  The dashboard plots these four metrics and proxy upload/download throughput
+  Select **Show history graphs** on the status page to plot these four metrics
+  and proxy upload/download throughput. Graphs are hidden by default; hiding
+  them stops history requests and reopening them resets the range to one hour.
+  The graphs cover
   for the last 5 or 15 minutes, 1 or 6
   hours, or 24 hours using uPlot. Drag a chart to zoom and use **Reset zoom** to
   restore the selected range. Charts refresh every 30 seconds; minima and maxima

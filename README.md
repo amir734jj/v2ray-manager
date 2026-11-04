@@ -45,7 +45,8 @@ UDP or QUIC. See [Shadowsocks details](./docs/operations.md#shadowsocks-in-v2ray
 ## Dashboard and history
 
 The **Status** page shows connections, CPU, memory, and proxy throughput.
-The history charts support time ranges, zoom, and lowest/highest values.
+Select **Show history graphs** to see time ranges, zoom, and lowest/highest
+values. Graphs are hidden by default.
 Samples are recorded every five seconds and retained for 24 hours in the
 `gateway-metrics` LevelDB volume. Preserve that volume across redeploys.
 
