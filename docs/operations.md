@@ -257,6 +257,26 @@ apply locally generated files.
   headers, or payloads are stored in status memory. When details are omitted,
   the page warns that IP groups cover only displayed sockets; protocol/country
   totals still count all connections.
+  IP groups also show approximate city/region/country, ISP and ASN from
+  `https://ipwho.is/<IP>`; expand a group for organization, timezone, postal code
+  and approximate coordinates. These lookups send public client IPs to ipwho.is
+  from the gateway, only when status is viewed. `ipaddr.js` classifies addresses;
+  only ordinary unicast addresses are queried, excluding private, loopback,
+  link-local, multicast, reserved and special-purpose ranges.
+  VPNs/proxies may report their exit location; this does not
+  identify a person, device or exact address. Cloudflare-based country counters
+  and per-connection metadata are unchanged; known Cloudflare countries remain
+  visible while a lookup is pending or unavailable.
+  The process-local `lru-cache` holds up to 2,000 IPs for 24 hours, automatically
+  expires entries and evicts least-recently-used results, shares in-flight
+  requests across HTTP and Socket.IO, and limits concurrent requests
+  to four with a five-second timeout. Failed lookups are logged and retried
+  after five minutes when status is viewed again. HTTP 429 pauses new lookups
+  for the provider's Retry-After (at least five minutes, or 24 hours if absent).
+  The UI reports loading/unavailable/rate-limited results without interrupting
+  tunnels. Cache entries are not persisted and reset on restart. The free
+  service currently allows 1,000 requests/day; cached IPs avoid repeat requests
+  but a large number of new IPs can still exhaust that allowance.
 - **Health:** `https://ws.hesamian.com/healthz` returns `ok`.
 - **Logs:** asynchronous, single-line `pino-pretty` records appear in Coolify
   stdout, for example

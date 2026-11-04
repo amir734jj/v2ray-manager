@@ -9,6 +9,8 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "http-proxy-3": "^2.0.2",
+    "ipaddr.js": "^2.5.0",
+    "lru-cache": "^11.5.3",
     "passport": "^0.7.0",
     "passport-custom": "^1.1.1",
     "passport-local": "^1.0.0",

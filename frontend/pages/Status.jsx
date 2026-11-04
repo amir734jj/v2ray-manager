@@ -23,6 +23,21 @@ function Counters({ rows, countries = false }) {
   </Table>;
 }
 
+function IpLocation({ details, countries }) {
+  if (details?.status === 'ready') {
+    return <>{[details.city, details.region, details.country].filter(Boolean).join(', ') || 'Unknown'}</>;
+  }
+  const messages = {
+    loading: 'Looking up...',
+    'not-public': 'Not a public IP',
+    'rate-limited': 'Lookup rate limited; retrying later',
+  };
+  return <>
+    {countries.filter(country => country.code !== 'unknown').map(country => `${country.name} (${country.code})`).join(', ')}
+    <div class="small text-body-secondary">{messages[details?.status] || 'Lookup unavailable; retrying later'}</div>
+  </>;
+}
+
 export default function Status({ user }) {
   const { data: status, error: refreshError, loading, refresh } = useResource('/api/status.json');
   const [expandedIp, setExpandedIp] = useState(new URLSearchParams(location.search).get('client'));
@@ -91,10 +106,16 @@ export default function Status({ user }) {
         {' '}{status.clientDetails.omitted} sockets are omitted from IP groups; protocol and country totals still include every socket.
       </div>}
       <p class="text-body-secondary">One group per IP, not per person or device. Expand to see sockets. User-Agent may be missing or spoofed and does not reliably identify a device model.</p>
-      <Table headings={['IP address', 'Country', 'Protocols', status.clientDetails.omitted ? 'Displayed sockets' : 'Open client sockets', 'Details', ...(user.admin && status.blocklistAvailable ? ['Actions'] : [])]}>
+      <p class="text-body-secondary">Approximate IP location and network data from ipwho.is, cached for 24 hours. VPNs and proxies may show the exit server's location, not the client's.</p>
+      <Table headings={['IP address', 'Location', 'ISP / Network', 'Protocols', status.clientDetails.omitted ? 'Displayed sockets' : 'Open client sockets', 'Details', ...(user.admin && status.blocklistAvailable ? ['Actions'] : [])]}>
         {status.clientGroups.map(group => <Fragment key={group.ip}>
           <tr>
-            <th scope="row">{group.ip}</th><td>{group.countries.map(country => `${country.name} (${country.code})`).join(', ')}</td>
+            <th scope="row">{group.ip}</th>
+            <td><IpLocation details={group.ipDetails} countries={group.countries} /></td>
+            <td>{group.ipDetails?.status === 'ready'
+              ? <>{group.ipDetails.isp || group.ipDetails.organization || 'Unknown'}
+                {group.ipDetails.asn !== null && <div class="small text-body-secondary">AS{group.ipDetails.asn}</div>}</>
+              : group.ipDetails?.status === 'loading' ? 'Looking up...' : 'Unavailable'}</td>
             <td>{group.protocols.join(', ')}</td><td>{group.active}</td>
             <td><button class="btn btn-sm btn-outline-secondary" aria-expanded={expandedIp === group.ip} onClick={() => {
               const ip = expandedIp === group.ip ? null : group.ip;
@@ -104,7 +125,18 @@ export default function Status({ user }) {
             {user.admin && status.blocklistAvailable && <td><button class="btn btn-sm btn-outline-danger" disabled={busy}
               onClick={() => block(group.ip)}>Block IP</button></td>}
           </tr>
-          {expandedIp === group.ip && <tr><td colSpan={user.admin && status.blocklistAvailable ? 6 : 5}>
+          {expandedIp === group.ip && <tr><td colSpan={user.admin && status.blocklistAvailable ? 7 : 6}>
+            {group.ipDetails?.status === 'ready' && <dl class="row mb-3">
+              {[
+                ['Organization', group.ipDetails.organization],
+                ['Timezone', group.ipDetails.timezone],
+                ['Postal code', group.ipDetails.postal],
+                ['Approximate coordinates', group.ipDetails.latitude !== null && group.ipDetails.longitude !== null
+                  ? `${group.ipDetails.latitude}, ${group.ipDetails.longitude}` : null],
+              ].map(([label, value]) => <Fragment key={label}>
+                <dt class="col-sm-3">{label}</dt><dd class="col-sm-9">{value || 'Unknown'}</dd>
+              </Fragment>)}
+            </dl>}
             <Table headings={['Connection ID', 'Protocol', 'Country', 'Reported client (User-Agent)', 'Connected since (UTC)', 'Open for (seconds)']}>
               {status.clients.filter(client => client.ip === group.ip).map(client => <tr key={client.connectionId}>
                 <th scope="row" class="text-break">{client.connectionId}</th><td>{client.protocol}</td>
@@ -114,7 +146,7 @@ export default function Status({ user }) {
             </Table>
           </td></tr>}
         </Fragment>)}
-        {!status.clientGroups.length && <tr><td colSpan={user.admin && status.blocklistAvailable ? 6 : 5}>No active client connections.</td></tr>}
+        {!status.clientGroups.length && <tr><td colSpan={user.admin && status.blocklistAvailable ? 7 : 6}>No active client connections.</td></tr>}
       </Table>
       {status.blocklistAvailable && <p><Link href="/blocked-ips">View blocked IPs</Link></p>}
       <h2 class="h4 mt-4">Connections by country</h2>

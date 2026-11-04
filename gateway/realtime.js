@@ -4,7 +4,7 @@ import { getSessionToken, isSameOrigin } from './auth.js';
 import { gatewayEvents } from './events.js';
 import { statusSnapshot } from './status.js';
 
-export function attachRealtime(server, { accounts, blocklist, secureCookies, logger }) {
+export function attachRealtime(server, { accounts, blocklist, secureCookies, logger, ipDetails }) {
   const io = new Server(server, {
     path: '/socket.io/',
     transports: ['websocket'],
@@ -104,7 +104,7 @@ export function attachRealtime(server, { accounts, blocklist, secureCookies, log
             continue;
           }
           const data = resource === 'status'
-            ? statusSnapshot(blocklist)
+            ? statusSnapshot(blocklist, ipDetails)
             : { users: await listAccounts(accounts) };
           if (socket.connected && subscriptions.has(resource)) socket.emit('resource', { resource, data });
         }

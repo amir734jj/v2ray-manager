@@ -138,7 +138,7 @@ export function trackConnection(transport, protocol, connection, {
   };
 }
 
-export function snapshot() {
+export function snapshot(ipDetails) {
   const totals = connectionTotals();
   const activeClients = [...clients].map(client => ({
     ...client,
@@ -173,15 +173,16 @@ export function snapshot() {
       active: group.active,
       countries: [...group.countries.values()].sort((a, b) => a.code.localeCompare(b.code)),
       protocols: [...group.protocols].sort(),
+      ipDetails: ipDetails ? ipDetails.lookup(group.ip) : { status: 'unavailable' },
     })).sort((a, b) => a.ip.localeCompare(b.ip)),
   };
 }
 
-export function statusSnapshot(blocklist) {
-  return { ...snapshot(), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
+export function statusSnapshot(blocklist, ipDetails) {
+  return { ...snapshot(ipDetails), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
 }
 
-export function createStatusApp({ blocklist, accounts, resourceHistory, secureCookies = true } = {}) {
+export function createStatusApp({ blocklist, accounts, resourceHistory, ipDetails, secureCookies = true } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
@@ -233,7 +234,7 @@ export function createStatusApp({ blocklist, accounts, resourceHistory, secureCo
     }
   });
   app.get('/api/status.json', requireUser, (_request, response) => {
-    response.json(statusSnapshot(blocklist));
+    response.json(statusSnapshot(blocklist, ipDetails));
   });
   app.get('/api/resource-history', requireUser, async (request, response) => {
     if (!resourceHistory) {

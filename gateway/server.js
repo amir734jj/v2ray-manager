@@ -9,8 +9,11 @@ import { normalizeIp } from './blocklist.js';
 import { createDatabase } from './database.js';
 import { attachRealtime } from './realtime.js';
 import { createResourceHistory } from './resource-history.js';
+import { createIpDetails } from './ip-details.js';
+import { gatewayEvents } from './events.js';
 
 const logger = createGatewayLogger();
+const ipDetails = createIpDetails({ logger, onChange: () => gatewayEvents.emit('status') });
 
 function parsePort(value, name) {
   const port = Number(value);
@@ -109,6 +112,7 @@ proxy.on('error', (error, request, response) => {
 const statusApp = createStatusApp({
   accounts,
   resourceHistory,
+  ipDetails,
   secureCookies: secureCookies === 'true',
   blocklist: {
     list: storedBlocklist.list,
@@ -188,7 +192,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 attachRealtime(server, {
-  accounts, blocklist: storedBlocklist, secureCookies: secureCookies === 'true', logger,
+  accounts, blocklist: storedBlocklist, secureCookies: secureCookies === 'true', logger, ipDetails,
 });
 
 function serverError(error) {
