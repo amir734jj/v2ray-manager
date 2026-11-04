@@ -1,35 +1,30 @@
 # V2Ray behind Cloudflare and Coolify
 
-Every generated V2Ray client has two Cloudflare-compatible transports:
-
-- WebSocket through `ws.hesamian.com`
-- gRPC through `grpc.hesamian.com`
-
-An observatory probes both outbounds every 30 seconds. V2Fly's `leastping`
-balancer sends new connections through the reachable transport with the lowest
-measured delay. WebSocket is the fallback until measurements are available.
+VLESS, VMess, Trojan, and Shadowsocks use WebSocket over HTTPS through
+`ws.hesamian.com`.
 
 ```text
-                                   +-> gateway :53217 (HTTP/1.1 + WS)
-Client -> Cloudflare -> Coolify ----+       -> v2ray WS ports 53217-53220
-                                   +-> gateway :53317 (HTTP/2 h2c)
-                                           -> v2ray gRPC ports 53317-53320
+Client -> Cloudflare -> Coolify -> gateway :53217
+                                      -> v2ray WS ports 53217-53220
 ```
 
 TLS terminates at Cloudflare and Coolify. V2Ray receives unencrypted traffic
-only across the private Docker network.
+only across the private Docker network. Each client uses a single WebSocket
+outbound per protocol; there is no transport balancing or observatory.
 
 ## Project structure
 
 ```text
 gateway/
-  Dockerfile          Node.js WebSocket and gRPC gateway image
-  server.mjs          Health endpoints, WebSocket and HTTP/2 gRPC routing
-  healthcheck.mjs     Checks both gateway listeners
+  Dockerfile          Node.js WebSocket gateway and status image
+  server.mjs          Health endpoint and WebSocket routing
+  healthcheck.mjs     Gateway HTTP health check
+  status.mjs          Express status routes and connection counters
+  status.pug          Bootstrap status page
 generator/
   Dockerfile          One-shot Coolify init image
   init.mjs            Config, profile, link, QR, and FTP generation
-  connections.mjs     Transport, export, and least-ping configuration
+  connections.mjs     WebSocket server/client configuration and share links
   rotate-id.mjs       Local credential rotation command
 v2ray/
   Dockerfile          V2Ray runtime image
@@ -41,12 +36,12 @@ tests/
 docker-compose.yaml
 ```
 
-| Protocol | WS path/port | gRPC service/port |
-|----------|--------------|-------------------|
-| VLESS | `/vless` / 53217 | `vless-grpc` / 53317 |
-| VMess | `/vmess` / 53218 | `vmess-grpc` / 53318 |
-| Trojan | `/trojan` / 53219 | `trojan-grpc` / 53319 |
-| Shadowsocks | `/shadowsocks` / 53220 | `shadowsocks-grpc` / 53320 |
+| Protocol | WebSocket path | Internal V2Ray port |
+|----------|----------------|---------------------|
+| VLESS | `/vless` | 53217 |
+| VMess | `/vmess` | 53218 |
+| Trojan | `/trojan` | 53219 |
+| Shadowsocks | `/shadowsocks` | 53220 |
 
 ## Coolify and Cloudflare setup
 
@@ -55,35 +50,37 @@ docker-compose.yaml
    ```text
    V2RAY_UUID=<shared credential>
    V2RAY_HOST=ws.hesamian.com
-   V2RAY_GRPC_HOST=grpc.hesamian.com
    ```
 
-2. Configure just two domain routes, both targeting **gateway**:
+2. Attach `https://ws.hesamian.com` to **gateway**, internal port **53217**,
+   using ordinary HTTP upstream with WebSocket upgrades.
+3. Optionally attach `https://v2ray.hesamian.com` to the same gateway port
+   for the read-only status page. This does not change `V2RAY_HOST`.
+4. Do not attach domains to `init` or `v2ray`. No custom proxy labels,
+   HTTP/2 upstream configuration, or Coolify resource ID variables are needed.
+5. Point Cloudflare DNS records for the chosen hostnames at the server.
+   Enable proxying (orange cloud) and WebSockets, and use **Full (strict)**
+   SSL/TLS with a valid origin certificate. HTTPS port 443 must be reachable.
+6. Exclude WebSocket paths from interactive challenges and caching rules.
+7. Deploy the entire Compose application and re-import generated profiles.
+   Public clients use port **443**, not internal port 53217.
 
-   | Public domain | Internal gateway port | Upstream protocol |
-   |---------------|-----------------------|-------------------|
-   | `https://ws.hesamian.com` | 53217 | HTTP (WebSocket upgrades) |
-   | `https://grpc.hesamian.com` | 53317 | HTTP/2 cleartext (`h2c`) |
+### Migrating an older dual-transport deployment
 
-   Public clients use HTTPS port **443** for both domains. The listed ports
-   are private container ports, not ports to append to public client URLs.
-3. Do not attach domains to `init` or `v2ray`. Remove any old gRPC domain/path
-   routes targeting `v2ray` directly.
-4. Preserve the full gRPC request path. The gateway routes `/vless-grpc/`,
-   `/vmess-grpc/`, `/trojan-grpc/`, and `/shadowsocks-grpc/` to the correct
-   V2Ray listener, including all RPC method suffixes.
+Remove the old `grpc.hesamian.com` / `www.grpc.hesamian.com` routes from Coolify,
+any manually configured h2c labels, and `V2RAY_GRPC_HOST` from environment
+variables. The Compose file no longer exposes the old ports or defines
+HTTP/2 routing. Remove unused DNS records if desired.
 
-   Compose defines a dedicated Traefik gRPC router and service using `h2c`
-   to gateway port 53317, so no manual upstream-protocol setting is needed
-   in the domain editor. This router matches `V2RAY_GRPC_HOST` (and its `www`
-   alias) and takes precedence over Coolify's generated route for that host.
-   Do not change the WebSocket service's upstream scheme to `h2c`.
-5. Create proxied (orange-cloud) Cloudflare DNS records for both hostnames,
-   enable **gRPC** and WebSockets under Network, and use **Full (strict)**
-   SSL/TLS. The origin must be reachable on HTTPS port 443.
-6. Exclude the WS paths and gRPC hostname from interactive challenges and
-   caching rules.
-7. Redeploy the entire Compose application, then re-import generated profiles.
+Regenerate and re-import profiles: older downloaded files do not update
+automatically. Local rotation removes obsolete `connection-grpc.txt` and
+`qr-grpc.png` files and migrates older client balancer rules to direct WebSocket
+outbounds. Server migration drops the obsolete listeners while preserving
+WebSocket ports and credentials. Initialization rewrites the mounted server
+configuration from the WebSocket template.
+
+Existing obsolete files on the FTP server are not deleted automatically;
+remove those two filenames from each remote protocol folder manually.
 
 ## Generated profiles and FTP exports
 
@@ -91,67 +88,35 @@ Set `FTP_HOST`, `FTP_USER`, `FTP_PASS`, and optionally `FTP_PATH` to upload:
 
 ```text
 <protocol>/
-  client.json           Automatic WS + gRPC profile using leastping
-  connection.txt        WebSocket share link
-  qr.png                WebSocket share-link QR
-  connection-grpc.txt   gRPC share link (VLESS, VMess, Trojan)
-  qr-grpc.png            gRPC share-link QR (VLESS, VMess, Trojan)
+  client.json      WebSocket profile
+  connection.txt   WebSocket share link
+  qr.png           WebSocket share-link QR
 ```
 
-Portable `ss://` links cannot represent V2Ray-native Shadowsocks over gRPC.
-The Shadowsocks `client.json` still includes both native transports and
-automatic selection. Its WebSocket link uses:
+All four client templates are required; missing templates fail initialization.
+Client outbounds and share URLs are generated in memory by `v2ray-tools`,
+without temporary conversion files or custom URL encoders.
+
+Shadowsocks share links require an app supporting `v2ray-plugin`:
 
 ```text
 v2ray-plugin;tls;mux=0;host=ws.hesamian.com;path=/shadowsocks
 ```
 
-The Shadowsocks app must support `v2ray-plugin`. Both Shadowsocks transports
-carry TCP only.
-
-Client outbounds and share URLs are generated in memory by `v2ray-tools`.
-The generator keeps deployment-specific transport and least-ping routing
-configuration here, without temporary conversion files or custom URL encoders.
-All four client templates are required; missing templates fail initialization.
-
-## Automatic selection
-
-Each generated client contains paired tags such as:
-
-```text
-trojan-ws
-trojan-grpc
-```
-
-The corresponding `trojan-auto` balancer uses:
-
-```json
-{
-  "strategy": { "type": "leastping", "settings": {} },
-  "fallbackTag": "trojan-ws"
-}
-```
-
-The observatory probes `https://cp.cloudflare.com/generate_204`. Selection is
-made for new connections; existing connections are not migrated between
-transports. Clients that only import share links cannot combine transports:
-import `client.json` in a V2Fly-compatible client for automatic selection.
+Shadowsocks carries TCP only; its local SOCKS UDP support is disabled.
 
 ## Rotating credentials
 
 ```bash
 npm ci
-npm run rotate -- ws.hesamian.com --grpc-host grpc.hesamian.com
+npm run rotate -- ws.hesamian.com
 
 # Supply an explicit UUID to synchronize with Coolify:
-npm run rotate -- ws.hesamian.com \
-  --grpc-host grpc.hesamian.com \
-  --uuid <uuid>
+npm run rotate -- ws.hesamian.com --uuid <uuid>
 ```
 
-Rotation generates local `v2ray-all/server.json`, `v2ray-all/client.json`, and
-the four protocol folders. It also migrates old TCP or WS-only server configs
-to paired WS/gRPC inbounds.
+Rotation generates `v2ray-all/server.json`, `v2ray-all/client.json`, and the
+four protocol folders. Existing TCP server configurations are migrated to WS.
 
 For this Compose deployment, set the UUID as `V2RAY_UUID` in Coolify and
 redeploy. Local generated files are not mounted into the named volume, so a
@@ -159,120 +124,80 @@ restart alone does not apply locally rotated credentials.
 
 ## Health checks and troubleshooting
 
-The gateway health check requests `/healthz` on both its HTTP/1.1 and HTTP/2
-listeners. V2Ray checks all eight listening sockets without opening incomplete
-protocol connections.
-
-Check the public WebSocket gateway:
+The gateway health check requests `/healthz`. V2Ray checks its four listening
+sockets without opening incomplete protocol connections.
 
 ```bash
 curl --fail https://ws.hesamian.com/healthz
 ```
 
-Expected response: `ok`. The gRPC gateway also serves `/healthz` over HTTP/2,
-but a health response does not prove a complete proxy tunnel works; validate
-with a generated gRPC profile.
-
-### Coolify gRPC upstream labels
-
-Compose owns the gRPC router and service, named
-`v2ray-grpc-${COOLIFY_RESOURCE_UUID}`. No Coolify-generated domain indexes or
-service suffixes are referenced. The resource ID namespaces the labels to
-avoid collisions with other applications; it must be available to Compose
-(set it explicitly for local Compose commands). Missing values fail validation.
-
-The router matches `V2RAY_GRPC_HOST` and its `www` alias, uses the `https`
-entrypoint and `letsencrypt` certificate resolver, and has priority 10000 so it
-wins over Coolify's default generated domain routes. It forwards the full path
-to the gateway on port 53317 using `h2c`, without compression middleware.
-These entrypoint/resolver names match this server's Traefik configuration;
-adjust them if using a server with different names. Keep the gRPC domain in
-Coolify for domain management. WebSocket/status routing is unchanged.
+Expected response: `ok`. This does not prove a complete authenticated proxy
+tunnel works; also test browsing with an imported profile.
 
 ### Read-only status page
 
-For a separate status domain, add `https://v2ray.hesamian.com` in Coolify,
-targeting **gateway** on internal port **53217** with ordinary HTTP upstream,
-and point its DNS record at the server. Open the domain root to see the page.
-This additional domain does not change `V2RAY_HOST` or `V2RAY_GRPC_HOST`.
+Open `https://v2ray.hesamian.com` after adding that domain to the gateway.
+The page is served at `/` and `/status` (also reachable on the WS hostname).
+It displays active tunnels, total attempts, and proxy errors by protocol and
+country. It refreshes every five seconds; `/status.json` provides the same
+aggregate data. Only GET and HEAD are accepted; no reset or control actions
+are exposed.
 
-The page is served at `/` and `/status` on the gateway (so it is also reachable
-on the WebSocket hostname). It shows active routed tunnels, total
-connection attempts, and proxy errors for each protocol and transport.
-The page refreshes every five seconds; `/status.json` provides the same
-aggregate data as JSON. Both endpoints also work on the HTTP/2 listener.
-Only GET and HEAD are accepted; there are no controls or reset actions.
-Express serves the HTTP status routes and renders a Pug template styled only
-with locally bundled Bootstrap CSS, with no custom CSS, browser-side JavaScript
-or CDN assets. The gRPC listener keeps
-native HTTP/2 handling.
+Express handles only the status routes. The page uses Pug and locally bundled
+Bootstrap CSS, without custom styles, browser-side JavaScript, or CDN assets.
+WebSocket proxying and health endpoints use native HTTP handlers.
 
-Counters are in memory, reset on gateway restart, and represent one process
-(not all replicas). Active sockets/streams and attempts are not authenticated
-users or proof that browsing works. Health checks, unknown routes, and status
-visits are excluded. Errors count proxy transport failures, not gRPC application
-status codes. No IPs, credentials, or destinations are exposed on the page.
-The country table groups active connections, attempts, and errors by trusted
-Cloudflare country metadata when `GATEWAY_TRUST_CLOUDFLARE_HEADERS=true`.
-Otherwise connections appear as Unknown, as do missing/invalid values and
-Cloudflare's `XX` code. `T1` is shown as Tor. No geolocation API is called.
+Counters reset on restart and represent one process, not all replicas.
+Attempts include failed connections; open sockets are not authenticated users
+or proof that browsing works. Health checks, unknown routes, and status visits
+are excluded. No IPs, credentials, or destinations are displayed.
 
-The endpoints have no built-in authentication: anyone who can reach the
-domain can see aggregate activity. Restrict `/status` and `/status.json` with
-proxy access controls if needed (including `/`), without protecting the
-protocol tunnel paths.
+The country table uses trusted Cloudflare metadata when
+`GATEWAY_TRUST_CLOUDFLARE_HEADERS=true`. Missing, invalid, untrusted, or `XX`
+values appear as Unknown; `T1` appears as Tor. No geolocation API is called.
+
+There is no built-in status authentication. Anyone reaching the domain can
+see aggregate activity. Restrict `/`, `/status`, and `/status.json` with proxy
+access controls if needed, without protecting WebSocket tunnel paths.
 
 ### Client IP and country logs
 
-The gateway uses Pino with `pino-pretty` for compact text logs to stdout,
-captured by Docker/Coolify. Lines show UTC time, severity, and a message.
-Startup and connections use `INFO`, invalid metadata uses `WARN`, and
-proxy/server failures use `ERROR` with the error message. JSON metadata,
+Pino and `pino-pretty` write compact text logs to stdout for Docker/Coolify.
+Lines show UTC time, severity, and a message. Startup and connections use INFO,
+invalid metadata uses WARN, and proxy/server failures use ERROR. JSON metadata,
 stack traces, and ANSI colors are omitted.
 
-The gateway writes one connection record for every recognized WebSocket
-upgrade or gRPC stream routed upstream. These are connection attempts, not
-proof of V2Ray authentication. Health checks and unknown routes are not logged.
+Each recognized WebSocket upgrade routed upstream generates one connection
+record. This is an attempt, not proof of V2Ray authentication.
 
-To log visitor identities behind Cloudflare and Coolify:
+To use Cloudflare client metadata:
 
-1. Enable **Network > IP Geolocation** for the domain in Cloudflare.
-2. Ensure Coolify/Traefik preserves `CF-Connecting-IP` and `CF-IPCountry`.
-3. Restrict origin access to Cloudflare and keep the gateway accessible only
-   through trusted proxies. Otherwise direct callers can forge these headers.
+1. Enable **Network > IP Geolocation** in Cloudflare.
+2. Ensure Coolify preserves `CF-Connecting-IP` and `CF-IPCountry`.
+3. Restrict origin access to Cloudflare and trusted proxies; otherwise callers
+   can forge these headers.
 4. Set `GATEWAY_TRUST_CLOUDFLARE_HEADERS=true` in Coolify and redeploy.
-
-Example connection log:
 
 ```text
 [17:00:00] INFO: WS vless | IP=203.0.113.42 | country=US
 ```
 
-By default, Cloudflare headers are ignored: `IP` is the immediate socket
-peer (usually the proxy), and `country` is `unknown`.
-Missing or invalid Cloudflare IPs fall back to the socket peer; invalid
-metadata emits a warning when header trust is enabled. Missing or invalid
-country values are `unknown`. Cloudflare's `XX` (unknown) and `T1` (Tor) codes
-are preserved. Country reflects the connecting IP, not necessarily the user's
-physical location. No external geolocation lookup is made.
-
-Logs exclude credentials, request paths, and payloads. Treat IP logs as
-sensitive data and configure appropriate access and retention in Coolify.
+By default, Cloudflare headers are ignored: IP is the socket peer and country
+is unknown. Invalid metadata is ignored and logged when trust is enabled.
+Country reflects the connecting IP, not necessarily the user's location.
+Logs exclude credentials, paths, and payloads. Treat IP logs as sensitive
+and configure appropriate access and retention in Coolify.
 
 ### v2rayNG custom-profile troubleshooting
 
-Generated profiles listen on local SOCKS port `10808`. When importing a full
-`client.json` into v2rayNG, its VPN tunnel must use that same local port.
-Older exports used `1080`; change their SOCKS inbound port to `10808` and
-re-import them, or regenerate and re-import the updated profiles.
-If you customized v2rayNG's local proxy port, match the profile to that port.
-After importing, select the updated profile and stop/start the VPN.
-Do not change the remote outbound port `443`.
+Generated profiles listen on local SOCKS port **10808**. The v2rayNG VPN
+tunnel must use the same local port. Older exports used 1080: regenerate
+and re-import them, or change the SOCKS inbound port to 10808. If you customized
+v2rayNG's local proxy port, match the profile to that port.
 
-Repeated `socks5 client connect` / `socks5 session connect` errors in the
-VPN tunnel log can indicate this local port mismatch, even when the core
-starts successfully. This is separate from connectivity to the public
-WebSocket or gRPC domains.
+After importing, select the updated profile and stop/start the VPN.
+Do not change remote outbound port 443. Repeated `socks5 client connect`
+errors can indicate a local port mismatch even when the core starts.
 
 ## Tests
 
@@ -280,15 +205,11 @@ WebSocket or gRPC domains.
 npm test
 ```
 
-The always-on gateway tests exercise WebSocket upgrades and bidirectional
-HTTP/2 streams for all four protocols, metadata and trailers, cancellation,
-upstream failures, and both health checks.
-The WebSocket gateway uses `http-proxy-3` to avoid the deprecated
-`util._extend` calls in the original `http-proxy`; the tests check for `DEP0060`
-warnings after proxying traffic.
+Gateway tests cover all four WebSocket routes, binary streaming, health checks,
+status counters, countries, metadata validation, and failed upstreams.
+Generator tests cover all profiles, share links, rotation, and migration.
 
-Optional runtime tests run actual V2Fly when `V2RAY_TEST_BINARY` contains its
-absolute path. Set `SS_PLUGIN_TEST_BINARY` to also test plugin interoperability.
-The runtime suite validates all eight protocol/transport combinations and
-automatic `leastping` selection through the gateway. Live Cloudflare/Coolify TLS and DNS still
-require post-deployment verification.
+Set `V2RAY_TEST_BINARY` to the absolute path of a V2Fly binary for actual
+proxy traffic tests through all four WebSocket outbounds. Optionally set
+`SS_PLUGIN_TEST_BINARY` to test Shadowsocks plugin interoperability.
+Live Cloudflare/Coolify TLS and DNS still require post-deployment verification.

@@ -7,7 +7,6 @@ services:
     environment:
       - V2RAY_UUID=${V2RAY_UUID}
       - V2RAY_HOST=${V2RAY_HOST:-ws.hesamian.com}
-      - V2RAY_GRPC_HOST=${V2RAY_GRPC_HOST:-grpc.hesamian.com}
       - FTP_HOST=${FTP_HOST}
       - FTP_USER=${FTP_USER}
       - FTP_PASS=${FTP_PASS}
@@ -20,15 +19,6 @@ services:
       context: .
       dockerfile: gateway/Dockerfile
     restart: always
-    labels:
-      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.rule=Host(`${V2RAY_GRPC_HOST:-grpc.hesamian.com}`) || Host(`www.${V2RAY_GRPC_HOST:-grpc.hesamian.com}`)"
-      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.entrypoints=https"
-      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.priority=10000"
-      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.tls=true"
-      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.service=v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}"
-      - "traefik.http.services.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.loadbalancer.server.port=53317"
-      - "traefik.http.services.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.loadbalancer.server.scheme=h2c"
     environment:
       - GATEWAY_TRUST_CLOUDFLARE_HEADERS=${GATEWAY_TRUST_CLOUDFLARE_HEADERS:-false}
     depends_on:
@@ -36,7 +26,6 @@ services:
         condition: service_healthy
     expose:
       - "53217"
-      - "53317"
     healthcheck:
       test: ["CMD", "node", "/app/healthcheck.mjs"]
       interval: 30s
@@ -59,10 +48,6 @@ services:
       - "53218"
       - "53219"
       - "53220"
-      - "53317"
-      - "53318"
-      - "53319"
-      - "53320"
     volumes:
       - v2ray-cfg:/cfg
     entrypoint: ["/bin/sh", "-c"]
@@ -81,7 +66,7 @@ services:
         echo "Config found, starting v2ray"
         exec v2ray run -config /cfg/server.json
     healthcheck:
-      test: ["CMD-SHELL", "kill -0 1 || exit 1; for port in 53217 53218 53219 53220 53317 53318 53319 53320; do netstat -lnt | grep -qE \":$$port[[:space:]].*LISTEN\" || exit 1; done"]
+      test: ["CMD-SHELL", "kill -0 1 || exit 1; for port in 53217 53218 53219 53220; do netstat -lnt | grep -qE \":$$port[[:space:]].*LISTEN\" || exit 1; done"]
       interval: 30s
       timeout: 5s
       retries: 3

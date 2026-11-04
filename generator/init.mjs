@@ -1,10 +1,10 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync, renameSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync, renameSync, unlinkSync, rmSync } from 'fs';
 import { execSync } from 'child_process';
 import { join } from 'path';
 import QRCode from 'qrcode';
 import { configureClient, configureServerTransports, createConnectionUrls, protocols, validateHost } from './connections.mjs';
 
-const { V2RAY_UUID, V2RAY_HOST, V2RAY_GRPC_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
+const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
 
 // ── Generate server.json ─────────────────────────────────────────────────────
 const cfgPath = '/cfg/server.json';
@@ -14,7 +14,6 @@ if (!V2RAY_UUID) {
   process.exit(1);
 }
 validateHost(V2RAY_HOST);
-validateHost(V2RAY_GRPC_HOST);
 
 const template = readFileSync('/app/templates/server.template.json', 'utf8');
 const serverJson = configureServerTransports(
@@ -39,27 +38,25 @@ if (FTP_HOST) {
   const ftpBase = `ftp://${FTP_HOST}${FTP_PATH || '/'}`;
   console.log(`FTP target: ${ftpBase} (user: ${FTP_USER})`);
 
-  const urls = createConnectionUrls(serverJson, V2RAY_HOST, V2RAY_GRPC_HOST);
+  const urls = createConnectionUrls(serverJson, V2RAY_HOST);
 
-  // Generate each folder: automatic client.json plus transport-specific links.
+  // Generate each WebSocket profile and share link.
   for (const dir of protocols) {
-    const wsUrl = urls.ws[dir];
-    const grpcUrl = urls.grpc[dir];
+    const wsUrl = urls[dir];
     const outDir = `/tmp/${dir}`;
     mkdirSync(outDir, { recursive: true });
+    for (const file of ['connection-grpc.txt', 'qr-grpc.png']) {
+      rmSync(join(outDir, file), { force: true });
+    }
 
     // client.json from template
     const clientJson = JSON.parse(readFileSync(`/app/templates/${dir}.template.json`, 'utf8'));
-    configureClient(clientJson, serverJson, V2RAY_HOST, V2RAY_GRPC_HOST);
+    configureClient(clientJson, serverJson, V2RAY_HOST);
     writeFileSync(join(outDir, 'client.json'), JSON.stringify(clientJson, null, 2) + '\n');
 
     writeFileSync(join(outDir, 'connection.txt'), wsUrl + '\n');
     await QRCode.toFile(join(outDir, 'qr.png'), wsUrl, { type: 'png', width: 512, margin: 2 });
-    if (grpcUrl) {
-      writeFileSync(join(outDir, 'connection-grpc.txt'), grpcUrl + '\n');
-      await QRCode.toFile(join(outDir, 'qr-grpc.png'), grpcUrl, { type: 'png', width: 512, margin: 2 });
-    }
-    console.log(`Generated ${dir}/ connection files and automatic client.json`);
+    console.log(`Generated ${dir}/ WebSocket connection files and client.json`);
   }
 
   // Upload all generated files to FTP

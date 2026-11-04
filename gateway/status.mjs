@@ -1,5 +1,4 @@
 import express from 'express';
-import { renderFile } from 'pug';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -7,7 +6,6 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const bootstrapCss = readFileSync(require.resolve('bootstrap/dist/css/bootstrap.min.css'), 'utf8');
 const views = fileURLToPath(new URL('.', import.meta.url));
-const template = fileURLToPath(new URL('./status.pug', import.meta.url));
 const statusHeaders = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
@@ -15,11 +13,9 @@ const statusHeaders = {
   'referrer-policy': 'no-referrer',
 };
 const startedAt = new Date();
-const counters = ['ws', 'grpc'].flatMap(transport =>
-  ['vless', 'vmess', 'trojan', 'shadowsocks'].map(protocol => ({
-    transport, protocol, active: 0, total: 0, errors: 0,
-  })),
-);
+const counters = ['vless', 'vmess', 'trojan', 'shadowsocks'].map(protocol => ({
+  transport: 'ws', protocol, active: 0, total: 0, errors: 0,
+}));
 const countries = new Map();
 const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 
@@ -64,22 +60,6 @@ function snapshot() {
     }), { active: 0, total: 0, errors: 0 }),
     connections: counters,
     countries: [...countries.values()].sort((a, b) => b.total - a.total || a.code.localeCompare(b.code)),
-  };
-}
-
-export function statusResponse(path, method) {
-  if (path !== '/' && path !== '/status' && path !== '/status.json') return null;
-  if (method !== 'GET' && method !== 'HEAD') {
-    return { code: 405, headers: { ...statusHeaders, allow: 'GET, HEAD' }, body: 'Method Not Allowed\n' };
-  }
-  const status = snapshot();
-  return {
-    code: 200,
-    headers: {
-      ...statusHeaders,
-      'content-type': path === '/status.json' ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8',
-    },
-    body: method === 'HEAD' ? '' : path === '/status.json' ? JSON.stringify(status) : renderFile(template, { ...status, bootstrapCss }),
   };
 }
 

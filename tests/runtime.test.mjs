@@ -37,7 +37,7 @@ async function waitForPort(port, child, logs) {
   throw new Error(`Runtime did not listen on ${port}: ${logs()}`);
 }
 
-test('real V2Ray traffic through all WS and gRPC outbounds', {
+test('real V2Ray traffic through all WebSocket outbounds', {
   skip: !V2RAY_TEST_BINARY,
   timeout: 60000,
 }, async () => {
@@ -61,22 +61,16 @@ test('real V2Ray traffic through all WS and gRPC outbounds', {
       JSON.parse(await readFile(join(projectDir, 'v2ray', 'templates', 'server.template.json'), 'utf8')),
     );
     const gatewayPort = await freePort();
-    const grpcGatewayPort = await freePort();
     const gatewayEnv = {
       ...process.env,
       GATEWAY_PORT: String(gatewayPort),
-      GATEWAY_GRPC_PORT: String(grpcGatewayPort),
       V2RAY_UPSTREAM_HOST: '127.0.0.1',
     };
     for (const inbound of server.inbounds) {
       const port = await freePort();
       inbound.listen = '127.0.0.1';
       inbound.port = port;
-      if (inbound.streamSettings.network === 'ws') {
-        gatewayEnv[`V2RAY_${inbound.protocol.toUpperCase()}_PORT`] = String(port);
-      } else {
-        gatewayEnv[`V2RAY_${inbound.protocol.toUpperCase()}_GRPC_PORT`] = String(port);
-      }
+      gatewayEnv[`V2RAY_${inbound.protocol.toUpperCase()}_PORT`] = String(port);
     }
     // Test ports and direct localhost destinations without depending on geoip assets.
     delete server.routing;
@@ -88,68 +82,34 @@ test('real V2Ray traffic through all WS and gRPC outbounds', {
     await waitForPort(server.inbounds[0].port, core, () => logs);
     gateway = start(process.execPath, [join(projectDir, 'gateway', 'server.mjs')], gatewayEnv);
     await waitForPort(gatewayPort, gateway, () => logs);
-    await waitForPort(grpcGatewayPort, gateway, () => logs);
     const health = await fetch(`http://127.0.0.1:${gatewayPort}/healthz`);
     assert.equal(await health.text(), 'ok\n');
     assert.equal((await fetch(`http://127.0.0.1:${gatewayPort}/unknown`)).status, 404);
     for (const protocol of protocols) {
       activeProtocol = protocol;
       const template = JSON.parse(await readFile(join(projectDir, 'v2ray', 'templates', `${protocol}.template.json`), 'utf8'));
-      const client = configureClient(template, server, 'localhost', 'localhost');
+      const client = configureClient(template, server, 'localhost');
       await writeFile(join(dir, `${protocol}-public.json`), JSON.stringify(client));
       await run(V2RAY_TEST_BINARY, ['test', '-config', `${protocol}-public.json`], { cwd: dir });
-      for (const network of ['ws', 'grpc']) {
-        activeProtocol = `${protocol}-${network}`;
-        const transportClient = structuredClone(client);
-        delete transportClient.routing;
-        delete transportClient.observatory;
-        const socksPort = await freePort();
-        transportClient.inbounds[0].port = socksPort;
-        // The local HTTP origin uses TCP only; avoid unrelated UDP port reservations.
-        transportClient.inbounds[0].settings.udp = false;
-        const outbound = transportClient.outbounds.find(item => item.tag === `${protocol}-${network}`);
-        const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
-        target.address = '127.0.0.1';
-        target.port = network === 'ws' ? gatewayPort : grpcGatewayPort;
-        outbound.streamSettings.security = 'none';
-        delete outbound.streamSettings.tlsSettings;
-        transportClient.outbounds = [outbound];
-        await writeFile(join(dir, `${protocol}-${network}.json`), JSON.stringify(transportClient));
-        const proxy = start(V2RAY_TEST_BINARY, ['run', '-config', `${protocol}-${network}.json`]);
-        await waitForPort(socksPort, proxy, () => logs);
-        const { stdout } = await run('curl', [
-          '--silent', '--show-error', '--fail', '--noproxy', '',
-          '--socks5-hostname', `127.0.0.1:${socksPort}`, '--max-time', '10',
-          `http://127.0.0.1:${origin.address().port}/`,
-        ]);
-        assert.equal(stdout, 'proxied-through-websocket', `${protocol}-${network}: ${logs}`);
-      }
-
-      activeProtocol = `${protocol}-automatic`;
-      const automaticClient = structuredClone(client);
-      const automaticSocksPort = await freePort();
-      automaticClient.inbounds[0].port = automaticSocksPort;
-      automaticClient.inbounds[0].settings.udp = false;
-      automaticClient.observatory.probeURL = `http://127.0.0.1:${origin.address().port}/`;
-      automaticClient.observatory.probeInterval = '1s';
-      for (const outbound of automaticClient.outbounds.filter(item => item.protocol === protocol)) {
-        const network = outbound.streamSettings.network;
-        const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
-        target.address = '127.0.0.1';
-        target.port = network === 'ws' ? gatewayPort : grpcGatewayPort;
-        outbound.streamSettings.security = 'none';
-        delete outbound.streamSettings.tlsSettings;
-      }
-      await writeFile(join(dir, `${protocol}-automatic.json`), JSON.stringify(automaticClient));
-      const automaticProxy = start(V2RAY_TEST_BINARY, ['run', '-config', `${protocol}-automatic.json`]);
-      await waitForPort(automaticSocksPort, automaticProxy, () => logs);
-      await delay(1500);
-      const { stdout: automaticOutput } = await run('curl', [
+      const socksPort = await freePort();
+      client.inbounds[0].port = socksPort;
+      // The local HTTP origin uses TCP only; avoid unrelated UDP port reservations.
+      client.inbounds[0].settings.udp = false;
+      const outbound = client.outbounds.find(item => item.tag === `${protocol}-ws`);
+      const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
+      target.address = '127.0.0.1';
+      target.port = gatewayPort;
+      outbound.streamSettings.security = 'none';
+      delete outbound.streamSettings.tlsSettings;
+      await writeFile(join(dir, `${protocol}-ws.json`), JSON.stringify(client));
+      const proxy = start(V2RAY_TEST_BINARY, ['run', '-config', `${protocol}-ws.json`]);
+      await waitForPort(socksPort, proxy, () => logs);
+      const { stdout } = await run('curl', [
         '--silent', '--show-error', '--fail', '--noproxy', '',
-        '--socks5-hostname', `127.0.0.1:${automaticSocksPort}`, '--max-time', '10',
+        '--socks5-hostname', `127.0.0.1:${socksPort}`, '--max-time', '10',
         `http://127.0.0.1:${origin.address().port}/`,
       ]);
-      assert.equal(automaticOutput, 'proxied-through-websocket', `${protocol}-automatic: ${logs}`);
+      assert.equal(stdout, 'proxied-through-websocket', `${protocol}-ws: ${logs}`);
     }
     if (SS_PLUGIN_TEST_BINARY) {
       activeProtocol = 'shadowsocks-plugin';
@@ -164,9 +124,8 @@ test('real V2Ray traffic through all WS and gRPC outbounds', {
       });
       await waitForPort(pluginPort, plugin, () => logs);
       const template = JSON.parse(await readFile(join(projectDir, 'v2ray', 'templates', 'shadowsocks.template.json'), 'utf8'));
-      const client = configureClient(template, server, 'localhost', 'localhost');
+      const client = configureClient(template, server, 'localhost');
       delete client.routing;
-      delete client.observatory;
       const socksPort = await freePort();
       client.inbounds[0].port = socksPort;
       const wsOutbound = client.outbounds.find(outbound => outbound.tag === 'shadowsocks-ws');

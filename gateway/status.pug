@@ -11,7 +11,7 @@ html(lang="en" data-bs-theme="dark")
       h1 Gateway status
       p.text-body-secondary Read-only live connection counters &middot; refreshes every 5 seconds
       section.row.g-3.my-4(aria-label="Connection totals")
-        each card in [{ label: 'Active tunnels', value: totals.active, color: 'text-success' }, { label: 'Total attempts', value: totals.total, color: '' }, { label: 'Proxy errors', value: totals.errors, color: 'text-danger' }]
+        each card in [{ label: 'Open client sockets', value: totals.active, color: 'text-success' }, { label: 'Connection attempts', value: totals.total, color: '' }, { label: 'Proxy failures', value: totals.errors, color: 'text-danger' }]
           .col-12.col-sm-4
             .card.h-100
               .card-body
@@ -23,7 +23,7 @@ html(lang="en" data-bs-theme="dark")
             tr
               th(scope="col") Protocol
               th(scope="col") Transport
-              each heading in ['Active', 'Total', 'Errors']
+              each heading in ['Open client sockets', 'Connection attempts', 'Proxy failures']
                 th.text-end(scope="col")= heading
           tbody
             each row in connections
@@ -41,7 +41,7 @@ html(lang="en" data-bs-theme="dark")
             tr
               th(scope="col") Country
               th(scope="col") Code
-              each heading in ['Active', 'Total', 'Errors']
+              each heading in ['Open client sockets', 'Connection attempts', 'Proxy failures']
                 th.text-end(scope="col")= heading
           tbody
             each row in countries
@@ -59,6 +59,7 @@ html(lang="en" data-bs-theme="dark")
           | Started #{startedAt} &middot; Uptime #{uptimeSeconds}s &middot;&nbsp;
           a(href="/status.json") JSON snapshot
         p.
-          Counts reset on restart and belong to this gateway process only. Attempts include failed connections.
-          Active means an open routed socket or stream, not an authenticated user or successful browsing.
+          Counts reset on restart and belong to this gateway process only. Connection attempts include probes, reconnects, and failed connections.
+          Open client sockets are routed client connections, not authenticated users or proof of successful browsing.
+          Proxy failures count attempts reported by the proxy error handler, not all authentication or browsing failures.
           Health checks and status visits are excluded. No client identities or destinations are displayed.

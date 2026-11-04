@@ -1,10 +1,9 @@
 import { createServer } from 'node:http';
-import { createServer as createHttp2Server, connect, constants } from 'node:http2';
 import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
 import pino from 'pino';
 import pretty from 'pino-pretty';
-import { trackConnection, statusResponse, createStatusApp } from './status.mjs';
+import { trackConnection, createStatusApp } from './status.mjs';
 
 const logger = pino({
   base: undefined,
@@ -25,7 +24,6 @@ function parsePort(value, name) {
 }
 
 const listenPort = parsePort(process.env.GATEWAY_PORT ?? '53217', 'GATEWAY_PORT');
-const grpcListenPort = parsePort(process.env.GATEWAY_GRPC_PORT ?? '53317', 'GATEWAY_GRPC_PORT');
 const upstreamHost = process.env.V2RAY_UPSTREAM_HOST ?? 'v2ray';
 const trustCloudflareHeaders = process.env.GATEWAY_TRUST_CLOUDFLARE_HEADERS ?? 'false';
 if (!['true', 'false'].includes(trustCloudflareHeaders)) {
@@ -68,12 +66,6 @@ function createRoutes(entries) {
 }
 
 const routes = createRoutes(protocols);
-const grpcRoutes = createRoutes({
-  '/vless-grpc': process.env.V2RAY_VLESS_GRPC_PORT ?? '53317',
-  '/vmess-grpc': process.env.V2RAY_VMESS_GRPC_PORT ?? '53318',
-  '/trojan-grpc': process.env.V2RAY_TROJAN_GRPC_PORT ?? '53319',
-  '/shadowsocks-grpc': process.env.V2RAY_SHADOWSOCKS_GRPC_PORT ?? '53320',
-});
 
 const proxy = httpProxy.createProxyServer({
   ws: true,
@@ -122,88 +114,6 @@ const server = createServer((request, response) => {
   response.end('Not Found\n');
 });
 
-const grpcServer = createHttp2Server();
-const grpcSessions = new Set();
-grpcServer.on('session', session => {
-  grpcSessions.add(session);
-  session.on('error', error => logger.error({ err: error }, `Gateway gRPC session error: ${error.message}`));
-  session.once('close', () => grpcSessions.delete(session));
-});
-
-grpcServer.on('stream', (stream, headers) => {
-  stream.on('error', error => logger.error({ err: error }, `Gateway gRPC stream error: ${error.message}`));
-  const path = headers[':path'] ?? '';
-  const status = statusResponse(path.split('?')[0], headers[':method']);
-  if (status) {
-    stream.respond({ ':status': status.code, ...status.headers });
-    stream.end(status.body);
-    return;
-  }
-  if (path === '/healthz') {
-    stream.respond({ ':status': 200, 'content-type': 'text/plain' });
-    stream.end('ok\n');
-    return;
-  }
-  const service = path.split('/')[1];
-  const target = grpcRoutes.get(`/${service}`);
-  if (!target || !path.startsWith(`/${service}/`)) {
-    stream.respond({ ':status': 404, 'content-type': 'text/plain' });
-    stream.end('Not Found\n');
-    return;
-  }
-
-  const country = logConnection('grpc', service.slice(0, -'-grpc'.length), headers, stream.session.socket.remoteAddress);
-  const recordFailure = trackConnection('grpc', service.slice(0, -'-grpc'.length), stream, country);
-  const session = connect(target);
-  let upstream;
-  let failed = false;
-  const fail = error => {
-    if (failed || stream.destroyed) return;
-    failed = true;
-    recordFailure();
-    logger.error({ err: error }, `Gateway gRPC proxy error: ${error.message}`);
-    if (stream.headersSent) {
-      stream.close(constants.NGHTTP2_INTERNAL_ERROR);
-    } else {
-      stream.respond({ ':status': 502, 'content-type': 'text/plain' });
-      stream.end('Bad Gateway\n');
-    }
-    upstream?.destroy();
-    session.destroy();
-  };
-  session.on('error', fail);
-  stream.once('close', () => {
-    upstream?.close(constants.NGHTTP2_CANCEL);
-    session.destroy();
-  });
-
-  let requestTrailers = {};
-  let responseTrailers = {};
-  stream.on('trailers', trailers => { requestTrailers = trailers; });
-  upstream = session.request({
-    ...headers,
-    ':scheme': 'http',
-    ':authority': new URL(target).host,
-  }, { waitForTrailers: true });
-  upstream.on('error', fail);
-  upstream.once('wantTrailers', () => {
-    if (!upstream.destroyed) upstream.sendTrailers(requestTrailers);
-  });
-  upstream.once('response', responseHeaders => {
-    if (!stream.destroyed) stream.respond(responseHeaders, { waitForTrailers: true });
-  });
-  upstream.on('trailers', trailers => { responseTrailers = trailers; });
-  stream.once('wantTrailers', () => {
-    if (!stream.destroyed) stream.sendTrailers(responseTrailers);
-  });
-  upstream.once('close', () => {
-    if (!upstream.readableEnded) fail(new Error('Upstream gRPC stream closed before completion'));
-    session.close();
-  });
-  stream.pipe(upstream);
-  upstream.pipe(stream);
-});
-
 server.on('upgrade', (request, socket, head) => {
   const path = new URL(request.url, 'http://localhost').pathname;
   const target = routes.get(path);
@@ -222,13 +132,9 @@ function serverError(error) {
   shutdown();
 }
 server.on('error', serverError);
-grpcServer.on('error', serverError);
 
 server.listen(listenPort, '0.0.0.0', () => {
   logger.info({ transport: 'ws', port: listenPort }, `WebSocket gateway listening on port ${listenPort}`);
-});
-grpcServer.listen(grpcListenPort, '0.0.0.0', () => {
-  logger.info({ transport: 'grpc', port: grpcListenPort }, `gRPC gateway listening on port ${grpcListenPort}`);
 });
 
 const sockets = new Set();
@@ -241,17 +147,10 @@ function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   for (const socket of sockets) socket.destroy();
-  for (const session of grpcSessions) session.destroy();
   server.close(error => {
     proxy.close();
     if (error) {
       logger.error({ err: error }, `Gateway shutdown error: ${error.message}`);
-      process.exitCode = 1;
-    }
-  });
-  grpcServer.close(error => {
-    if (error) {
-      logger.error({ err: error }, `Gateway gRPC shutdown error: ${error.message}`);
       process.exitCode = 1;
     }
   });
