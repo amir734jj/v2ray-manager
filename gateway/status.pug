@@ -33,6 +33,29 @@ html(lang="en" data-bs-theme="dark")
                 td.text-end= row.active
                 td.text-end= row.total
                 td.text-end= row.errors
+      h2.h4.mt-4 Active client connections
+      p.text-body-secondary
+        | One row per open socket, not per person. Reported client information comes from User-Agent and may be missing or spoofed;
+        |  it does not reliably identify a device model. IPs and client details are also exposed in the JSON snapshot.
+      .table-responsive
+        table.table.table-striped.align-middle
+          thead
+            tr
+              each heading in ['Connection ID', 'IP address', 'Protocol', 'Country', 'Reported client (User-Agent)', 'Connected since (UTC)', 'Open for (seconds)']
+                th(scope="col")= heading
+          tbody
+            each client in clients
+              tr
+                th.text-break(scope="row")= client.connectionId
+                td= client.ip
+                td= client.protocol
+                td #{client.countryName} (#{client.countryCode})
+                td.text-break= client.userAgent
+                td.text-nowrap= client.connectedAt
+                td.text-end= client.elapsedSeconds
+            if clients.length === 0
+              tr
+                td.text-body-secondary(colspan="7") No active client connections.
       h2.h4.mt-4 Connections by country
       p.text-body-secondary Based on trusted Cloudflare metadata; unavailable values appear as Unknown.
       .table-responsive
@@ -62,4 +85,5 @@ html(lang="en" data-bs-theme="dark")
           Counts reset on restart and belong to this gateway process only. Connection attempts include probes, reconnects, and failed connections.
           Open client sockets are routed client connections, not authenticated users or proof of successful browsing.
           Proxy failures count attempts reported by the proxy error handler, not all authentication or browsing failures.
-          Health checks and status visits are excluded. No client identities or destinations are displayed.
+          Health checks and status visits are excluded. Active client details disappear when sockets close.
+          IPs may be shared by multiple people or devices; credentials and destinations are not displayed.

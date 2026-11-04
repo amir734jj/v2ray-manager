@@ -1,4 +1,5 @@
 import express from 'express';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -17,9 +18,12 @@ const counters = ['vless', 'vmess', 'trojan', 'shadowsocks'].map(protocol => ({
   transport: 'ws', protocol, active: 0, total: 0, errors: 0,
 }));
 const countries = new Map();
+const clients = new Set();
 const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 
-export function trackConnection(transport, protocol, connection, country) {
+export function trackConnection(transport, protocol, connection, {
+  country, ip, userAgent, connectionId = randomUUID(), connectedAt = new Date().toISOString(),
+} = {}) {
   const counter = counters.find(item => item.transport === transport && item.protocol === protocol);
   const code = typeof country === 'string' && /^(?:[A-Z]{2}|T1)$/.test(country) && country !== 'XX'
     ? country : 'unknown';
@@ -31,6 +35,17 @@ export function trackConnection(transport, protocol, connection, country) {
     });
   }
   const countryCounter = countries.get(code);
+  const client = {
+    connectionId,
+    ip: ip ?? 'unknown',
+    protocol,
+    transport,
+    countryCode: code,
+    countryName: countryCounter.name,
+    userAgent: typeof userAgent === 'string' && userAgent.trim() ? userAgent : 'Unknown',
+    connectedAt,
+  };
+  clients.add(client);
   for (const row of [counter, countryCounter]) {
     row.active++;
     row.total++;
@@ -38,6 +53,7 @@ export function trackConnection(transport, protocol, connection, country) {
   connection.once('close', () => {
     counter.active--;
     countryCounter.active--;
+    clients.delete(client);
   });
   let failed = false;
   return () => {
@@ -60,6 +76,10 @@ function snapshot() {
     }), { active: 0, total: 0, errors: 0 }),
     connections: counters,
     countries: [...countries.values()].sort((a, b) => b.total - a.total || a.code.localeCompare(b.code)),
+    clients: [...clients].map(client => ({
+      ...client,
+      elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
+    })),
   };
 }
 

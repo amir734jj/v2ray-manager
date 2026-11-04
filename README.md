@@ -65,13 +65,24 @@ apply locally generated files.
 
 - **Status:** `https://v2ray.hesamian.com` (or `/status` on the gateway).
   Refreshes every **5 seconds**, with active tunnels, attempts, and errors by
-  protocol and country. `/status.json` provides the same counters.
+  protocol and country, plus each active connection's ID, IP, country, reported
+  User-Agent, start time, and elapsed seconds. `/status.json` provides the same data.
 - **Health:** `https://ws.hesamian.com/healthz` returns `ok`.
-- **Logs:** connection attempts and proxy errors appear in Coolify stdout.
+- **Logs:** expanded request, connection, and error logs appear in Coolify stdout,
+  Each WebSocket attempt has an ID shared with the status page, with its IP,
+  country, protocol, reported client, and headers in one record. Close logs
+  include the same ID and socket lifetime; proxy failures also carry the ID.
+  HTTP request headers and error stacks are included. Common credential
+  headers (Authorization, cookies, X-Api-Key, and Cloudflare access tokens) are
+  redacted; query strings and bodies are not logged. Other headers may contain sensitive data,
+  so restrict log access and retention.
 
 Counters reset on restart. Open tunnels and healthy listeners do not prove
-authenticated browsing works. The status page shows no IPs or credentials,
-but is public unless you restrict its routes separately from tunnel paths.
+authenticated browsing works. Each client row is an open socket, not a unique
+user; User-Agent may hint at an app or device but can be missing or spoofed.
+Device models cannot be reliably detected. Rows disappear when sockets close.
+The page and JSON expose full client IPs and User-Agents publicly unless you
+restrict status routes separately from tunnel paths. Credentials are not shown.
 
 For country counters and real client IP logs, enable Cloudflare IP Geolocation,
 preserve `CF-Connecting-IP` / `CF-IPCountry`, and set

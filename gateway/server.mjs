@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
 import pino from 'pino';
@@ -7,13 +8,32 @@ import { trackConnection, createStatusApp } from './status.mjs';
 
 const logger = pino({
   base: undefined,
+  redact: {
+    paths: [
+      'headers.authorization',
+      'headers["proxy-authorization"]',
+      'headers.cookie',
+      'headers["set-cookie"]',
+      'headers["x-api-key"]',
+      'headers["cf-access-jwt-assertion"]',
+    ],
+    censor: '[REDACTED]',
+  },
 }, pretty({
   colorize: false,
   translateTime: 'UTC:HH:MM:ss',
-  ignore: 'pid,hostname,transport,port,err',
-  singleLine: true,
+  ignore: 'pid,hostname',
   sync: true,
 }));
+
+function logRequest(request) {
+  logger.info({
+    method: request.method,
+    path: new URL(request.url, 'http://localhost').pathname,
+    headers: request.headers,
+    remoteAddress: request.socket.remoteAddress,
+  }, 'Gateway request');
+}
 
 function parsePort(value, name) {
   const port = Number(value);
@@ -30,7 +50,10 @@ if (!['true', 'false'].includes(trustCloudflareHeaders)) {
   throw new Error('GATEWAY_TRUST_CLOUDFLARE_HEADERS must be true or false');
 }
 
-function logConnection(transport, protocol, headers, remoteAddress) {
+function logConnection(transport, protocol, request) {
+  const { headers } = request;
+  const { remoteAddress } = request.socket;
+  const openedAt = performance.now();
   let ip = remoteAddress ?? null;
   let country = null;
   if (trustCloudflareHeaders === 'true') {
@@ -47,8 +70,29 @@ function logConnection(transport, protocol, headers, remoteAddress) {
       logger.warn('Gateway connection metadata: invalid CF-Connecting-IP ignored');
     }
   }
-  logger.info(`${transport.toUpperCase()} ${protocol} | IP=${ip ?? 'unknown'} | country=${country ?? 'unknown'}`);
-  return country;
+  const client = {
+    connectionId: randomUUID(),
+    transport,
+    protocol,
+    ip: ip ?? 'unknown',
+    country: country && country !== 'XX' ? country : 'unknown',
+    userAgent: headers['user-agent']?.trim() || 'Unknown',
+    connectedAt: new Date().toISOString(),
+  };
+  logger.info({
+    ...client,
+    method: request.method,
+    path: new URL(request.url, 'http://localhost').pathname,
+    headers,
+    remoteAddress,
+  }, 'Gateway connection opened');
+  request.socket.once('close', () => {
+    logger.info({
+      ...client,
+      durationMs: Math.round(performance.now() - openedAt),
+    }, 'Gateway connection closed');
+  });
+  return client;
 }
 
 const protocols = {
@@ -73,10 +117,11 @@ const proxy = httpProxy.createProxyServer({
   changeOrigin: false,
 });
 
-const wsFailures = new WeakMap();
+const wsConnections = new WeakMap();
 proxy.on('error', (error, request, response) => {
-  wsFailures.get(request)?.();
-  logger.error({ err: error }, `Gateway proxy error: ${error.message}`);
+  const connection = wsConnections.get(request);
+  connection?.fail();
+  logger.error({ ...connection?.client, err: error }, `Gateway proxy error: ${error.message}`);
   if ('writeHead' in response) {
     if (!response.headersSent) response.writeHead(502);
     response.end('Bad Gateway\n');
@@ -95,6 +140,7 @@ statusApp.use((error, _request, response, next) => {
   response.status(500).type('text').send('Internal Server Error\n');
 });
 const server = createServer((request, response) => {
+  logRequest(request);
   const path = new URL(request.url, 'http://localhost').pathname;
   if (path === '/' || path === '/status' || path === '/status.json') {
     statusApp(request, response);
@@ -118,11 +164,12 @@ server.on('upgrade', (request, socket, head) => {
   const path = new URL(request.url, 'http://localhost').pathname;
   const target = routes.get(path);
   if (!target) {
+    logRequest(request);
     socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
     return;
   }
-  const country = logConnection('ws', path.slice(1), request.headers, socket.remoteAddress);
-  wsFailures.set(request, trackConnection('ws', path.slice(1), socket, country));
+  const client = logConnection('ws', path.slice(1), request);
+  wsConnections.set(request, { client, fail: trackConnection('ws', path.slice(1), socket, client) });
   proxy.ws(request, socket, head, { target });
 });
 
