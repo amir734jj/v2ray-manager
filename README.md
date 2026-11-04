@@ -73,19 +73,11 @@ docker-compose.yaml
    `/vmess-grpc/`, `/trojan-grpc/`, and `/shadowsocks-grpc/` to the correct
    V2Ray listener, including all RPC method suffixes.
 
-   The gRPC route still requires `h2c` between Coolify and the gateway.
-   If the domain UI has no upstream-protocol option, set the corresponding
-   Traefik service's `loadbalancer.server.scheme=h2c` in its routing labels.
-   For example, for a service named `gateway-grpc`:
-
-   ```text
-   traefik.http.services.gateway-grpc.loadbalancer.server.port=53317
-   traefik.http.services.gateway-grpc.loadbalancer.server.scheme=h2c
-   ```
-
-   Use the actual service name referenced by the gRPC router, not necessarily
-   the example name. Adding an HTTPS domain alone does not configure the
-   HTTP/2 upstream. Do not change the WebSocket service's scheme to `h2c`.
+   Compose defines a dedicated Traefik gRPC router and service using `h2c`
+   to gateway port 53317, so no manual upstream-protocol setting is needed
+   in the domain editor. This router matches `V2RAY_GRPC_HOST` (and its `www`
+   alias) and takes precedence over Coolify's generated route for that host.
+   Do not change the WebSocket service's upstream scheme to `h2c`.
 5. Create proxied (orange-cloud) Cloudflare DNS records for both hostnames,
    enable **gRPC** and WebSockets under Network, and use **Full (strict)**
    SSL/TLS. The origin must be reachable on HTTPS port 443.
@@ -183,16 +175,19 @@ with a generated gRPC profile.
 
 ### Coolify gRPC upstream labels
 
-The Compose gateway labels set `h2c` on the existing Coolify-generated HTTPS
-services for `grpc.hesamian.com` and `www.grpc.hesamian.com`. The application ID
-is interpolated from `COOLIFY_RESOURCE_UUID`; it must be available to Compose
-(set it explicitly for local Compose commands). Missing values fail validation
-instead of producing labels for an empty service ID.
-The domain indexes (`https-2`, `https-3`) and suffix (`gateway-3e21`) still
-match the current generated service names. If the application is recreated or
-domains are reordered, check the deployable Compose and update the names to
-match the gRPC routers' `service` values. WebSocket/status services must keep
-their ordinary HTTP upstream scheme.
+Compose owns the gRPC router and service, named
+`v2ray-grpc-${COOLIFY_RESOURCE_UUID}`. No Coolify-generated domain indexes or
+service suffixes are referenced. The resource ID namespaces the labels to
+avoid collisions with other applications; it must be available to Compose
+(set it explicitly for local Compose commands). Missing values fail validation.
+
+The router matches `V2RAY_GRPC_HOST` and its `www` alias, uses the `https`
+entrypoint and `letsencrypt` certificate resolver, and has priority 10000 so it
+wins over Coolify's default generated domain routes. It forwards the full path
+to the gateway on port 53317 using `h2c`, without compression middleware.
+These entrypoint/resolver names match this server's Traefik configuration;
+adjust them if using a server with different names. Keep the gRPC domain in
+Coolify for domain management. WebSocket/status routing is unchanged.
 
 ### Read-only status page
 

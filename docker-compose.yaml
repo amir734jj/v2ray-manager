@@ -21,8 +21,14 @@ services:
       dockerfile: gateway/Dockerfile
     restart: always
     labels:
-      - "traefik.http.services.https-2-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}-gateway-3e21.loadbalancer.server.scheme=h2c"
-      - "traefik.http.services.https-3-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}-gateway-3e21.loadbalancer.server.scheme=h2c"
+      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.rule=Host(`${V2RAY_GRPC_HOST:-grpc.hesamian.com}`) || Host(`www.${V2RAY_GRPC_HOST:-grpc.hesamian.com}`)"
+      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.entrypoints=https"
+      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.priority=10000"
+      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.tls=true"
+      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.service=v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}"
+      - "traefik.http.services.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.loadbalancer.server.port=53317"
+      - "traefik.http.services.v2ray-grpc-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}.loadbalancer.server.scheme=h2c"
     environment:
       - GATEWAY_TRUST_CLOUDFLARE_HEADERS=${GATEWAY_TRUST_CLOUDFLARE_HEADERS:-false}
     depends_on:
