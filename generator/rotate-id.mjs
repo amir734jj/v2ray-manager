@@ -18,27 +18,38 @@ import QRCode                      from 'qrcode';
 import { configureClient, configureServerTransports, createConnectionUrls, validateHost } from './connections.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
+const projectDir = dirname(__dir);
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
-  const serverPath   = join(__dir, 'v2ray-all/server.json');
-  const templatePath = join(__dir, 'templates/server.template.json');
+  const serverPath   = join(projectDir, 'v2ray-all/server.json');
+  const templatePath = join(projectDir, 'v2ray/templates/server.template.json');
 
-  // Optional args: npm run rotate -- [<server-address>] [--uuid <uuid>]
+  // Optional args: npm run rotate -- [<server-address>] --grpc-host <hostname> [--uuid <uuid>]
   const args    = process.argv.slice(2);
   const uuidIdx = args.indexOf('--uuid');
+  const grpcIdx = args.indexOf('--grpc-host');
   const argUuid = uuidIdx !== -1 ? args[uuidIdx + 1] : null;
-  const argHost = args.find((a, i) => a !== '--uuid' && (uuidIdx === -1 || i !== uuidIdx + 1)) ?? null;
+  const argGrpcHost = grpcIdx !== -1 ? args[grpcIdx + 1] : null;
+  const optionIndexes = new Set();
+  for (const index of [uuidIdx, grpcIdx]) {
+    if (index !== -1) {
+      optionIndexes.add(index);
+      optionIndexes.add(index + 1);
+    }
+  }
+  const argHost = args.find((_arg, index) => !optionIndexes.has(index)) ?? null;
   const newId   = argUuid ?? randomUUID();
-  const existingConn = await readFile(join(__dir, 'vless/connection.txt'), 'utf8').catch(err => {
+  const existingConn = await readFile(join(projectDir, 'vless/connection.txt'), 'utf8').catch(err => {
     if (err.code === 'ENOENT') return '';
     throw err;
   });
   const hostMatch = existingConn.match(/@([^:@\s]+):/);
   const serverHost = validateHost(argHost ?? process.env.V2RAY_HOST ?? hostMatch?.[1]);
+  const grpcHost = validateHost(argGrpcHost ?? process.env.V2RAY_GRPC_HOST);
 
   // --- Update v2ray-all/server.json (bootstrap from template if missing) -----
   const sourcePath = await access(serverPath).then(() => serverPath).catch(() => templatePath);
@@ -60,45 +71,49 @@ async function main() {
   console.log(`New ID: ${newId}  ← set this as V2RAY_UUID in Coolify`);
   console.log('Updated  v2ray-all/server.json\n');
 
-  // Read back the updated config so the library works from the real file
-  const config = JSON.parse(updatedServer);
+  const config = serverJson;
 
   if (argHost) console.log(`Server:  ${serverHost}\n`);
-  const urls = await createConnectionUrls(config, serverHost);
+  const urls = createConnectionUrls(config, serverHost, grpcHost);
 
   const entries = [
-    { dir: 'vless',       label: 'VLESS',       url: urls.vless       },
-    { dir: 'vmess',       label: 'VMess',       url: urls.vmess       },
-    { dir: 'trojan',      label: 'Trojan',      url: urls.trojan      },
-    { dir: 'shadowsocks', label: 'Shadowsocks', url: urls.shadowsocks },
+    { dir: 'vless',       label: 'VLESS',       wsUrl: urls.ws.vless,       grpcUrl: urls.grpc.vless },
+    { dir: 'vmess',       label: 'VMess',       wsUrl: urls.ws.vmess,       grpcUrl: urls.grpc.vmess },
+    { dir: 'trojan',      label: 'Trojan',      wsUrl: urls.ws.trojan,      grpcUrl: urls.grpc.trojan },
+    { dir: 'shadowsocks', label: 'Shadowsocks', wsUrl: urls.ws.shadowsocks, grpcUrl: null },
   ];
 
   // --- Write connection files, QR images & print QR codes --------------------
-  for (const { dir, label, url } of entries) {
-    await mkdir(join(__dir, dir), { recursive: true });
-    const qrImagePath    = join(__dir, dir, 'qr.png');
-    const clientJsonPath = join(__dir, dir, 'client.json');
+  for (const { dir, label, wsUrl, grpcUrl } of entries) {
+    await mkdir(join(projectDir, dir), { recursive: true });
+    const qrImagePath    = join(projectDir, dir, 'qr.png');
+    const clientJsonPath = join(projectDir, dir, 'client.json');
 
-    await writeFile(join(__dir, dir, 'connection.txt'), url + '\n');
-    await QRCode.toFile(qrImagePath, url, { type: 'png', width: 512, margin: 2 });
+    await writeFile(join(projectDir, dir, 'connection.txt'), wsUrl + '\n');
+    await QRCode.toFile(qrImagePath, wsUrl, { type: 'png', width: 512, margin: 2 });
+    if (grpcUrl) {
+      await writeFile(join(projectDir, dir, 'connection-grpc.txt'), grpcUrl + '\n');
+      await QRCode.toFile(join(projectDir, dir, 'qr-grpc.png'), grpcUrl, { type: 'png', width: 512, margin: 2 });
+    }
 
     // Update per-protocol client.json (bootstrap from templates/<dir>.template.json if missing)
-    const clientTemplatePath = join(__dir, 'templates/' + dir + '.template.json');
+    const clientTemplatePath = join(projectDir, 'v2ray/templates/' + dir + '.template.json');
     const clientSource = await access(clientJsonPath).then(() => clientJsonPath)
       .catch(() => access(clientTemplatePath).then(() => clientTemplatePath).catch(() => null));
     if (clientSource) {
       const raw = await readFile(clientSource, 'utf8');
       const clientJson = JSON.parse(raw);
-      configureClient(clientJson, config, serverHost);
+      configureClient(clientJson, config, serverHost, grpcHost);
       await writeFile(clientJsonPath, JSON.stringify(clientJson, null, 2) + '\n');
       console.log(`Updated  ${dir}/client.json`);
     }
 
-    const qr = await QRCode.toString(url, { type: 'terminal', small: true });
+    const qr = await QRCode.toString(wsUrl, { type: 'terminal', small: true });
     console.log(`\n${'═'.repeat(60)}`);
     console.log(` ${label}`);
     console.log(`${'═'.repeat(60)}`);
-    console.log(`URL: ${url}`);
+    console.log(`WS URL:   ${wsUrl}`);
+    if (grpcUrl) console.log(`gRPC URL: ${grpcUrl}`);
     console.log(`QR:  ${qrImagePath}\n`);
     console.log(qr);
   }
@@ -106,14 +121,14 @@ async function main() {
   console.log('All connection.txt files updated.\n');
 
   // --- Update v2ray-all/client.json (all protocols in one file) ---------------
-  const rootClientPath    = join(__dir, 'v2ray-all/client.json');
-  const rootTemplatePath  = join(__dir, 'templates/client.template.json');
+  const rootClientPath    = join(projectDir, 'v2ray-all/client.json');
+  const rootTemplatePath  = join(projectDir, 'v2ray/templates/client.template.json');
   const rootSource = await access(rootClientPath).then(() => rootClientPath)
     .catch(() => access(rootTemplatePath).then(() => rootTemplatePath).catch(() => null));
   if (rootSource) {
     const raw = await readFile(rootSource, 'utf8');
     const clientJson = JSON.parse(raw);
-    configureClient(clientJson, config, serverHost);
+    configureClient(clientJson, config, serverHost, grpcHost);
     await writeFile(rootClientPath, JSON.stringify(clientJson, null, 2) + '\n');
     console.log('Updated  v2ray-all/client.json (all protocols)\n');
   }

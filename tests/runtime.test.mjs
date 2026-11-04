@@ -4,16 +4,16 @@ import { createServer } from 'node:http';
 import { createServer as createTcpServer, connect } from 'node:net';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, writeFile, copyFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { configureClient, protocols } from './connections.mjs';
+import { configureClient, configureServerTransports, protocols } from '../generator/connections.mjs';
 
-const root = dirname(fileURLToPath(import.meta.url));
+const projectDir = dirname(dirname(fileURLToPath(import.meta.url)));
 const run = promisify(execFile);
-const { V2RAY_TEST_BINARY, NGINX_TEST_BINARY, SS_PLUGIN_TEST_BINARY } = process.env;
+const { V2RAY_TEST_BINARY, SS_PLUGIN_TEST_BINARY } = process.env;
 
 async function freePort() {
   const server = createTcpServer();
@@ -37,8 +37,8 @@ async function waitForPort(port, child, logs) {
   throw new Error(`Runtime did not listen on ${port}: ${logs()}`);
 }
 
-test('real V2Ray traffic through Nginx for all four WebSocket protocols', {
-  skip: !V2RAY_TEST_BINARY || !NGINX_TEST_BINARY,
+test('real V2Ray traffic through all WS and gRPC outbounds', {
+  skip: !V2RAY_TEST_BINARY,
   timeout: 60000,
 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'v2ray-runtime-test-'));
@@ -56,60 +56,98 @@ test('real V2Ray traffic through Nginx for all four WebSocket protocols', {
   }
   try {
     await mkdir(join(dir, 'logs'));
-    await mkdir(join(dir, 'temp'));
     await new Promise(resolve => origin.listen(0, '127.0.0.1', resolve));
-    const server = JSON.parse(await readFile(join(root, 'templates', 'server.template.json'), 'utf8'));
-    let nginx = await readFile(join(root, 'nginx.conf'), 'utf8');
+    const server = configureServerTransports(
+      JSON.parse(await readFile(join(projectDir, 'v2ray', 'templates', 'server.template.json'), 'utf8')),
+    );
     const gatewayPort = await freePort();
-    nginx = nginx.replace('listen 53217;', `listen ${gatewayPort};`)
-      .replaceAll('/etc/nginx/proxy_params_ws', 'proxy_params_ws');
+    const gatewayEnv = {
+      ...process.env,
+      GATEWAY_PORT: String(gatewayPort),
+      V2RAY_UPSTREAM_HOST: '127.0.0.1',
+    };
     for (const inbound of server.inbounds) {
       const port = await freePort();
-      nginx = nginx.replace(`core:${inbound.port}`, `127.0.0.1:${port}`);
       inbound.listen = '127.0.0.1';
       inbound.port = port;
+      if (inbound.streamSettings.network === 'ws') {
+        gatewayEnv[`V2RAY_${inbound.protocol.toUpperCase()}_PORT`] = String(port);
+      }
     }
     // Test ports and direct localhost destinations without depending on geoip assets.
     delete server.routing;
     await Promise.all([
       writeFile(join(dir, 'server.json'), JSON.stringify(server)),
-      writeFile(join(dir, 'nginx.conf'), `events {}\nhttp {\n${nginx}\n}\n`),
-      copyFile(join(root, 'proxy_params_ws'), join(dir, 'proxy_params_ws')),
     ]);
     await run(V2RAY_TEST_BINARY, ['test', '-config', join(dir, 'server.json')], { cwd: dir });
-    await run(NGINX_TEST_BINARY, ['-t', '-p', '.', '-c', 'nginx.conf'], { cwd: dir });
     const core = start(V2RAY_TEST_BINARY, ['run', '-config', 'server.json']);
     await waitForPort(server.inbounds[0].port, core, () => logs);
-    gateway = start(NGINX_TEST_BINARY, ['-p', '.', '-c', 'nginx.conf']);
+    gateway = start(process.execPath, [join(projectDir, 'gateway', 'server.mjs')], gatewayEnv);
     await waitForPort(gatewayPort, gateway, () => logs);
     const health = await fetch(`http://127.0.0.1:${gatewayPort}/healthz`);
     assert.equal(await health.text(), 'ok\n');
     assert.equal((await fetch(`http://127.0.0.1:${gatewayPort}/unknown`)).status, 404);
     for (const protocol of protocols) {
       activeProtocol = protocol;
-      const template = JSON.parse(await readFile(join(root, 'templates', `${protocol}.template.json`), 'utf8'));
-      const client = configureClient(template, server, 'localhost');
+      const template = JSON.parse(await readFile(join(projectDir, 'v2ray', 'templates', `${protocol}.template.json`), 'utf8'));
+      const client = configureClient(template, server, 'localhost', 'localhost');
       await writeFile(join(dir, `${protocol}-public.json`), JSON.stringify(client));
       await run(V2RAY_TEST_BINARY, ['test', '-config', `${protocol}-public.json`], { cwd: dir });
-      delete client.routing;
-      const socksPort = await freePort();
-      client.inbounds[0].port = socksPort;
-      const outbound = client.outbounds[0];
-      const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
-      target.address = '127.0.0.1';
-      target.port = gatewayPort;
-      // Coolify supplies TLS in production; this fixture tests the plain internal gateway.
-      outbound.streamSettings.security = 'none';
-      delete outbound.streamSettings.tlsSettings;
-      await writeFile(join(dir, `${protocol}.json`), JSON.stringify(client));
-      const proxy = start(V2RAY_TEST_BINARY, ['run', '-config', `${protocol}.json`]);
-      await waitForPort(socksPort, proxy, () => logs);
-      const { stdout } = await run('curl', [
+      for (const network of ['ws', 'grpc']) {
+        activeProtocol = `${protocol}-${network}`;
+        const transportClient = structuredClone(client);
+        delete transportClient.routing;
+        delete transportClient.observatory;
+        const socksPort = await freePort();
+        transportClient.inbounds[0].port = socksPort;
+        const outbound = transportClient.outbounds.find(item => item.tag === `${protocol}-${network}`);
+        const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
+        const serverInbound = server.inbounds.find(
+          item => item.protocol === protocol && item.streamSettings.network === network,
+        );
+        target.address = '127.0.0.1';
+        target.port = network === 'ws' ? gatewayPort : serverInbound.port;
+        outbound.streamSettings.security = 'none';
+        delete outbound.streamSettings.tlsSettings;
+        transportClient.outbounds = [outbound];
+        await writeFile(join(dir, `${protocol}-${network}.json`), JSON.stringify(transportClient));
+        const proxy = start(V2RAY_TEST_BINARY, ['run', '-config', `${protocol}-${network}.json`]);
+        await waitForPort(socksPort, proxy, () => logs);
+        const { stdout } = await run('curl', [
+          '--silent', '--show-error', '--fail', '--noproxy', '',
+          '--socks5-hostname', `127.0.0.1:${socksPort}`, '--max-time', '10',
+          `http://127.0.0.1:${origin.address().port}/`,
+        ]);
+        assert.equal(stdout, 'proxied-through-websocket', `${protocol}-${network}: ${logs}`);
+      }
+
+      activeProtocol = `${protocol}-automatic`;
+      const automaticClient = structuredClone(client);
+      const automaticSocksPort = await freePort();
+      automaticClient.inbounds[0].port = automaticSocksPort;
+      automaticClient.observatory.probeURL = `http://127.0.0.1:${origin.address().port}/`;
+      automaticClient.observatory.probeInterval = '1s';
+      for (const outbound of automaticClient.outbounds.filter(item => item.protocol === protocol)) {
+        const network = outbound.streamSettings.network;
+        const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
+        const serverInbound = server.inbounds.find(
+          item => item.protocol === protocol && item.streamSettings.network === network,
+        );
+        target.address = '127.0.0.1';
+        target.port = network === 'ws' ? gatewayPort : serverInbound.port;
+        outbound.streamSettings.security = 'none';
+        delete outbound.streamSettings.tlsSettings;
+      }
+      await writeFile(join(dir, `${protocol}-automatic.json`), JSON.stringify(automaticClient));
+      const automaticProxy = start(V2RAY_TEST_BINARY, ['run', '-config', `${protocol}-automatic.json`]);
+      await waitForPort(automaticSocksPort, automaticProxy, () => logs);
+      await delay(1500);
+      const { stdout: automaticOutput } = await run('curl', [
         '--silent', '--show-error', '--fail', '--noproxy', '',
-        '--socks5-hostname', `127.0.0.1:${socksPort}`, '--max-time', '10',
+        '--socks5-hostname', `127.0.0.1:${automaticSocksPort}`, '--max-time', '10',
         `http://127.0.0.1:${origin.address().port}/`,
       ]);
-      assert.equal(stdout, 'proxied-through-websocket', `${protocol}: ${logs}`);
+      assert.equal(automaticOutput, 'proxied-through-websocket', `${protocol}-automatic: ${logs}`);
     }
     if (SS_PLUGIN_TEST_BINARY) {
       activeProtocol = 'shadowsocks-plugin';
@@ -123,14 +161,17 @@ test('real V2Ray traffic through Nginx for all four WebSocket protocols', {
         SS_PLUGIN_OPTIONS: 'mux=0;host=localhost;path=/shadowsocks',
       });
       await waitForPort(pluginPort, plugin, () => logs);
-      const template = JSON.parse(await readFile(join(root, 'templates', 'shadowsocks.template.json'), 'utf8'));
-      const client = configureClient(template, server, 'localhost');
+      const template = JSON.parse(await readFile(join(projectDir, 'v2ray', 'templates', 'shadowsocks.template.json'), 'utf8'));
+      const client = configureClient(template, server, 'localhost', 'localhost');
       delete client.routing;
+      delete client.observatory;
       const socksPort = await freePort();
       client.inbounds[0].port = socksPort;
-      client.outbounds[0].settings.servers[0].address = '127.0.0.1';
-      client.outbounds[0].settings.servers[0].port = pluginPort;
-      client.outbounds[0].streamSettings = { network: 'tcp', security: 'none' };
+      const wsOutbound = client.outbounds.find(outbound => outbound.tag === 'shadowsocks-ws');
+      wsOutbound.settings.servers[0].address = '127.0.0.1';
+      wsOutbound.settings.servers[0].port = pluginPort;
+      wsOutbound.streamSettings = { network: 'tcp', security: 'none' };
+      client.outbounds = [wsOutbound];
       await writeFile(join(dir, 'ss-plugin.json'), JSON.stringify(client));
       const proxy = start(V2RAY_TEST_BINARY, ['run', '-config', 'ss-plugin.json']);
       await waitForPort(socksPort, proxy, () => logs);
@@ -144,11 +185,6 @@ test('real V2Ray traffic through Nginx for all four WebSocket protocols', {
   } catch (error) {
     throw new Error(`${activeProtocol}: ${error.message}\n${logs}`, { cause: error });
   } finally {
-    if (gateway && gateway.exitCode === null) {
-      const exited = new Promise(resolve => gateway.once('exit', resolve));
-      await run(NGINX_TEST_BINARY, ['-s', 'quit', '-p', '.', '-c', 'nginx.conf'], { cwd: dir });
-      await exited;
-    }
     for (const child of children) {
       if (child.exitCode === null) {
         const exited = new Promise(resolve => child.once('exit', resolve));

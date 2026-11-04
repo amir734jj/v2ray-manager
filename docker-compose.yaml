@@ -2,11 +2,12 @@ services:
   init:
     build:
       context: .
-      dockerfile: Dockerfile.init
+      dockerfile: generator/Dockerfile
     restart: "no"
     environment:
       - V2RAY_UUID=${V2RAY_UUID}
-      - V2RAY_HOST=${V2RAY_HOST:?Set V2RAY_HOST to your public HTTPS hostname}
+      - V2RAY_HOST=${V2RAY_HOST:-ws.hesamian.com}
+      - V2RAY_GRPC_HOST=${V2RAY_GRPC_HOST:-grpc.hesamian.com}
       - FTP_HOST=${FTP_HOST}
       - FTP_USER=${FTP_USER}
       - FTP_PASS=${FTP_PASS}
@@ -14,27 +15,27 @@ services:
     volumes:
       - v2ray-cfg:/cfg
 
-  v2ray:
+  gateway:
     build:
       context: .
-      dockerfile: Dockerfile.gateway
+      dockerfile: gateway/Dockerfile
     restart: always
     depends_on:
-      core:
+      v2ray:
         condition: service_healthy
     expose:
       - "53217"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:53217/healthz"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:53217/healthz').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
 
-  core:
+  v2ray:
     build:
       context: .
-      dockerfile: Dockerfile.v2ray
+      dockerfile: v2ray/Dockerfile
       pull: true
     pull_policy: build
     restart: always
@@ -46,6 +47,10 @@ services:
       - "53218"
       - "53219"
       - "53220"
+      - "53317"
+      - "53318"
+      - "53319"
+      - "53320"
     volumes:
       - v2ray-cfg:/cfg
     entrypoint: ["/bin/sh", "-c"]
@@ -64,7 +69,7 @@ services:
         echo "Config found, starting v2ray"
         exec v2ray run -config /cfg/server.json
     healthcheck:
-      test: ["CMD-SHELL", "kill -0 1 || exit 1; for port in 53217 53218 53219 53220; do netstat -lnt | grep -qE \":$$port[[:space:]].*LISTEN\" || exit 1; done"]
+      test: ["CMD-SHELL", "kill -0 1 || exit 1; for port in 53217 53218 53219 53220 53317 53318 53319 53320; do netstat -lnt | grep -qE \":$$port[[:space:]].*LISTEN\" || exit 1; done"]
       interval: 30s
       timeout: 5s
       retries: 3

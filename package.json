@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test",
-    "rotate": "node rotate-id.mjs",
+    "test": "node --test tests",
+    "rotate": "node generator/rotate-id.mjs",
     "clean": "rm -f v2ray-all/server.json v2ray-all/client.json && rm -rf vless vmess trojan shadowsocks && mkdir vless vmess trojan shadowsocks && echo Cleaned."
   },
   "dependencies": {
+    "http-proxy": "^1.18.1",
     "qrcode": "^1.5.4",
     "v2ray-tools": "github:amir734jj/v2ray-tools"
   }

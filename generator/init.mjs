@@ -2,9 +2,9 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSy
 import { execSync } from 'child_process';
 import { join } from 'path';
 import QRCode from 'qrcode';
-import { configureClient, createConnectionUrls, validateHost } from './connections.mjs';
+import { configureClient, configureServerTransports, createConnectionUrls, protocols, validateHost } from './connections.mjs';
 
-const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
+const { V2RAY_UUID, V2RAY_HOST, V2RAY_GRPC_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
 
 // ── Generate server.json ─────────────────────────────────────────────────────
 const cfgPath = '/cfg/server.json';
@@ -14,9 +14,13 @@ if (!V2RAY_UUID) {
   process.exit(1);
 }
 validateHost(V2RAY_HOST);
+validateHost(V2RAY_GRPC_HOST);
 
 const template = readFileSync('/app/templates/server.template.json', 'utf8');
-const config = template.replaceAll('00000000-0000-0000-0000-000000000000', V2RAY_UUID);
+const serverJson = configureServerTransports(
+  JSON.parse(template.replaceAll('00000000-0000-0000-0000-000000000000', V2RAY_UUID)),
+);
+const config = JSON.stringify(serverJson, null, 2) + '\n';
 const tmpPath = `${cfgPath}.tmp`;
 
 try {
@@ -32,41 +36,34 @@ try {
 // ── Generate client folders & upload to FTP ─────────────────────────────────
 if (FTP_HOST) {
 
-  const serverHost = V2RAY_HOST;
   const ftpBase = `ftp://${FTP_HOST}${FTP_PATH || '/'}`;
   console.log(`FTP target: ${ftpBase} (user: ${FTP_USER})`);
 
-  const serverJson = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  const urls = createConnectionUrls(serverJson, V2RAY_HOST, V2RAY_GRPC_HOST);
 
-  const urls = await createConnectionUrls(serverJson, serverHost);
-
-  const entries = [
-    { dir: 'vless',       url: urls.vless,       templateName: 'vless'       },
-    { dir: 'vmess',       url: urls.vmess,       templateName: 'vmess'       },
-    { dir: 'trojan',      url: urls.trojan,      templateName: 'trojan'      },
-    { dir: 'shadowsocks', url: urls.shadowsocks, templateName: 'shadowsocks' },
-  ];
-
-  // Generate each folder: client.json, connection.txt, qr.png
-  for (const { dir, url, templateName } of entries) {
+  // Generate each folder: automatic client.json plus transport-specific links.
+  for (const dir of protocols) {
+    const wsUrl = urls.ws[dir];
+    const grpcUrl = urls.grpc[dir];
     const outDir = `/tmp/${dir}`;
     mkdirSync(outDir, { recursive: true });
 
     // client.json from template
-    const tmplPath = `/app/templates/${templateName}.template.json`;
-    if (existsSync(tmplPath)) {
-      const clientJson = JSON.parse(readFileSync(tmplPath, 'utf8'));
-      configureClient(clientJson, serverJson, serverHost);
-      writeFileSync(join(outDir, 'client.json'), JSON.stringify(clientJson, null, 2) + '\n');
-    }
+    const clientJson = JSON.parse(readFileSync(`/app/templates/${dir}.template.json`, 'utf8'));
+    configureClient(clientJson, serverJson, V2RAY_HOST, V2RAY_GRPC_HOST);
+    writeFileSync(join(outDir, 'client.json'), JSON.stringify(clientJson, null, 2) + '\n');
 
-    writeFileSync(join(outDir, 'connection.txt'), url + '\n');
-    await QRCode.toFile(join(outDir, 'qr.png'), url, { type: 'png', width: 512, margin: 2 });
-    console.log(`Generated ${dir}/  (client.json, connection.txt, qr.png)`);
+    writeFileSync(join(outDir, 'connection.txt'), wsUrl + '\n');
+    await QRCode.toFile(join(outDir, 'qr.png'), wsUrl, { type: 'png', width: 512, margin: 2 });
+    if (grpcUrl) {
+      writeFileSync(join(outDir, 'connection-grpc.txt'), grpcUrl + '\n');
+      await QRCode.toFile(join(outDir, 'qr-grpc.png'), grpcUrl, { type: 'png', width: 512, margin: 2 });
+    }
+    console.log(`Generated ${dir}/ connection files and automatic client.json`);
   }
 
   // Upload all generated files to FTP
-  for (const dir of ['vless', 'vmess', 'trojan', 'shadowsocks']) {
+  for (const dir of protocols) {
     const dirPath = `/tmp/${dir}`;
     if (!existsSync(dirPath)) continue;
 
