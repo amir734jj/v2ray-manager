@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createTrafficMeter } from './traffic.mjs';
 import { createAuth, sameOrigin } from './auth.mjs';
+import { activateAccount, listAccounts } from './accounts.mjs';
 
 const publicDirectory = fileURLToPath(new URL('./public', import.meta.url));
 const statusHeaders = {
@@ -128,10 +129,10 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
     index: false, redirect: false,
   }));
   app.get('/api/users', requireUser, requireAdmin, async (_request, response) => {
-    response.json({ users: await accounts.list() });
+    response.json({ users: await listAccounts(accounts) });
   });
   app.post('/api/users/:id/activate', requireUser, requireAdmin, sameOrigin, async (request, response) => {
-    response.json({ user: await accounts.activate(request.params.id) });
+    response.json({ user: await activateAccount(accounts, request.params.id) });
   });
   app.all(['/blocklist/block', '/blocklist/unblock'], (request, response, next) => {
     if (request.method !== 'POST') {

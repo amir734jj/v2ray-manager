@@ -42,15 +42,19 @@ username/password credentials and restores database-backed sessions. Pug is no
 longer used.
 
 - Usernames are case-insensitive, 3-64 characters, using letters, numbers,
-  dots, underscores or hyphens. Passwords must be 12-128 characters.
+  dots, underscores or hyphens. Passwords must be 10-128 characters.
 - The first registration is the active administrator; later accounts require
   approval. The administrator activates them on the **Users** page.
   Active non-administrators can view status and blocked IPs, but cannot change
-  the blocklist, list accounts or activate users.
+  the blocklist, list accounts or activate users. Concurrent registrations use
+  serializable database transactions; if repeated conflicts occur, retry the
+  registration.
 - Only the initial account is an administrator. There is currently no interface
   for changing roles, deactivating users or resetting passwords.
-- Passwords are salted and hashed with scrypt. Only hashes of random session
-  tokens are stored. Sessions expire after seven days; logout revokes the
+- Passwords are salted and hashed with Argon2id using the `argon2` library.
+  Existing scrypt password hashes are upgraded on the user's next successful
+  login. Passwords are hashed, not reversibly encrypted. Only hashes of random
+  session tokens are stored. Sessions expire after seven days; logout revokes the
   current session. Cookies are HttpOnly, SameSite=Strict and Secure by default.
 - Use HTTPS in production, including behind Coolify. For local HTTP development
   only, set `GATEWAY_SECURE_COOKIES=false`; this disables Secure cookies and

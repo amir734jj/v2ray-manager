@@ -9,6 +9,7 @@
     "clean": "rm -f v2ray-all/server.json v2ray-all/client.json && rm -rf vless vmess trojan shadowsocks && mkdir vless vmess trojan shadowsocks && echo Cleaned."
   },
   "dependencies": {
+    "argon2": "^0.44.0",
     "bootstrap": "^5.3.3",
     "axios": "^1.13.2",
     "express": "^5.1.0",

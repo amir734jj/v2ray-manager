@@ -30,8 +30,8 @@ export default function AccountForm({ registering, onSuccess, notice }) {
       <label class="form-label" for="username">Username</label>
       <input class="form-control mb-3" id="username" name="username" required minLength={3} maxLength={64}
         pattern="[A-Za-z0-9][A-Za-z0-9_.-]{2,63}" autoComplete="username" />
-      <label class="form-label" for="password">Password (12-128 characters)</label>
-      <input class="form-control mb-3" id="password" name="password" type="password" required minLength={12}
+      <label class="form-label" for="password">Password (10-128 characters)</label>
+      <input class="form-control mb-3" id="password" name="password" type="password" required minLength={10}
         maxLength={128} autoComplete={registering ? 'new-password' : 'current-password'} />
       <button class="btn btn-primary" disabled={busy}>{busy ? 'Please wait...' : registering ? 'Register' : 'Log in'}</button>
       <Link class="btn btn-link" href={registering ? '/login' : '/register'} aria-disabled={busy}

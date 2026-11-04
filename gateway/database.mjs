@@ -1,6 +1,6 @@
 import { col, DataTypes, fn, Op, Sequelize, Transaction, where } from 'sequelize';
 import { normalizeIp } from './blocklist.mjs';
-import { createAccounts } from './accounts.mjs';
+import { initializeAccounts } from './accounts.mjs';
 
 export const MAX_BLOCKED_IPS = 1000;
 
@@ -19,7 +19,7 @@ export async function createDatabase(url) {
   try {
     return {
       blocklist: await createBlocklist(database),
-      accounts: await createAccounts(database),
+      accounts: await initializeAccounts(database),
       close: () => database.close(),
     };
   } catch (error) {

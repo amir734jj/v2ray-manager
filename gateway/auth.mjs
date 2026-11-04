@@ -3,7 +3,9 @@ import { rateLimit } from 'express-rate-limit';
 import { Passport } from 'passport';
 import { Strategy as CustomStrategy } from 'passport-custom';
 import { Strategy as LocalStrategy } from 'passport-local';
-import { SESSION_SECONDS } from './accounts.mjs';
+import {
+  authenticateSession, createSession, registerAccount, revokeSession, SESSION_SECONDS, verifyAccount,
+} from './accounts.mjs';
 
 export function sameOrigin(request, _response, next) {
   let origin;
@@ -32,10 +34,10 @@ export function createAuth({ accounts, secureCookies = true }) {
     return cookie?.slice(cookieName.length + 1);
   }
   passport.use('local', new LocalStrategy((username, password, done) => {
-    accounts.verify({ username, password }).then(user => done(null, user), done);
+    verifyAccount(accounts, { username, password }).then(user => done(null, user), done);
   }));
   passport.use('gateway-session', new CustomStrategy((request, done) => {
-    accounts.authenticate(token(request)).then(user => done(null, user || false), done);
+    authenticateSession(accounts, token(request)).then(user => done(null, user || false), done);
   }));
   const authLimit = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -67,15 +69,15 @@ export function createAuth({ accounts, secureCookies = true }) {
   });
   router.use(express.json({ limit: '2kb' }));
   router.post('/register', authLimit, async (request, response) => {
-    response.status(201).json({ user: await accounts.register(request.body) });
+    response.status(201).json({ user: await registerAccount(accounts, request.body) });
   });
   router.post('/login', authLimit, (request, response, next) => {
     passport.authenticate('local', { session: false }, async (error, user) => {
       if (error) return next(error);
       if (!user) return next(Object.assign(new Error('Invalid username or password'), { status: 401 }));
       try {
-        const newToken = await accounts.createSession(user);
-        await accounts.logout(token(request));
+        const newToken = await createSession(accounts, user);
+        await revokeSession(accounts, token(request));
         response.cookie(cookieName, newToken, { ...cookieOptions, maxAge: SESSION_SECONDS * 1000 });
         response.json({ user });
       } catch (sessionError) {
@@ -84,7 +86,7 @@ export function createAuth({ accounts, secureCookies = true }) {
     })(request, response, next);
   });
   router.post('/logout', async (request, response) => {
-    await accounts.logout(token(request));
+    await revokeSession(accounts, token(request));
     response.clearCookie(cookieName, cookieOptions).sendStatus(204);
   });
   router.get('/me', requireUser, (request, response) => response.json({ user: request.user }));
