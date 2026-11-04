@@ -100,6 +100,12 @@ The navigation bar links to **Status**, **Blocked IPs**, and, for administrators
 **Users**. Login and registration have their own pages. Active viewers can open
 the status and blocklist pages, but management actions remain administrator-only.
 
+The root npm workspace has separate frontend, gateway, and generator packages
+with a shared lockfile. Frontend libraries such as uPlot are frontend
+dependencies; Vite is a frontend development dependency. The gateway image
+installs only gateway runtime dependencies and copies in the built browser
+assets, not the frontend's packages.
+
 The gateway Docker build uses Node LTS/npm (`node:lts-bookworm-slim`) to install dependencies and build the
 browser assets, then runs the gateway with `oven/bun:latest` as the non-root
 `bun` user. Both stages use Debian for native dependency compatibility. Pull
@@ -203,8 +209,10 @@ apply locally generated files.
   binary units. These metrics cover only the gateway process, not total
   host/container resources, PostgreSQL, or V2Ray.
   The dashboard plots these four metrics for the last 5 or 15 minutes, 1 or 6
-  hours, or 24 hours. Charts refresh every 30 seconds; minima and maxima use
-  all five-second samples in the selected range. Graphs show per-bucket minima
+  hours, or 24 hours using uPlot. Drag a chart to zoom and use **Reset zoom** to
+  restore the selected range. Charts refresh every 30 seconds; minima and maxima
+  use all five-second samples in the selected range, including when zoomed.
+  Graphs show per-bucket minima
   and maxima rather than every point. Each chart uses its own vertical scale,
   and lines connect samples across gaps (including gateway downtime). The authenticated `/api/resource-history`
   endpoint provides the same bounded summaries. Bun can report heap used

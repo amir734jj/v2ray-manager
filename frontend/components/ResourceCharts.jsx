@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import prettyBytes from 'pretty-bytes';
+import uPlot from 'uplot';
+import 'uplot/dist/uPlot.min.css';
 import { api, errorMessage } from '../api.mjs';
 
 const ranges = [
@@ -16,6 +18,73 @@ const metrics = [
   { key: 'heapTotalBytes', label: 'JavaScript heap allocated', format: value => prettyBytes(value, { binary: true }) },
 ];
 
+function plotData(points) {
+  return [points.map(point => point.timestamp / 1000), points.map(point => point.value)];
+}
+
+function ResourcePlot({ metric, series, history }) {
+  const container = useRef(null);
+  const chart = useRef(null);
+  const bounds = useRef(null);
+
+  useEffect(() => {
+    const color = getComputedStyle(container.current).getPropertyValue('--bs-body-color').trim() || '#adb5bd';
+    const plot = new uPlot({
+      width: Math.max(1, container.current.clientWidth),
+      height: 190,
+      tzDate: timestamp => new Date(timestamp * 1000),
+      scales: { x: { time: true } },
+      axes: [
+        { stroke: color, grid: { stroke: 'rgba(128, 128, 128, 0.2)' } },
+        { stroke: color, grid: { stroke: 'rgba(128, 128, 128, 0.2)' }, size: 90,
+          values: (_plot, values) => values.map(metric.format) },
+      ],
+      series: [
+        { label: 'Time', value: (_plot, value) => value == null ? '—' : new Date(value * 1000).toLocaleString() },
+        { label: metric.label, stroke: '#6ea8fe', width: 2,
+          value: (_plot, value) => value == null ? '—' : metric.format(value),
+          points: { show: plot => plot.data[1].length === 1 } },
+      ],
+    }, plotData(series.points), container.current);
+    chart.current = plot;
+    const observer = new ResizeObserver(entries => {
+      const width = Math.floor(entries[0].contentRect.width);
+      if (width > 0) plot.setSize({ width, height: 190 });
+    });
+    observer.observe(container.current);
+    return () => {
+      observer.disconnect();
+      plot.destroy();
+      chart.current = null;
+      bounds.current = null;
+    };
+  }, [metric]);
+
+  useEffect(() => {
+    const plot = chart.current;
+    if (!plot) return;
+    const start = history.start / 1000;
+    const end = history.end / 1000;
+    const previous = bounds.current;
+    const current = plot.scales.x;
+    const zoomed = previous && (current.min > previous.start + 0.001 || current.max < previous.end - 0.001);
+    const min = zoomed ? Math.max(start, current.min) : start;
+    const max = zoomed ? Math.min(end, current.max) : end;
+    plot.setData(plotData(series.points), false);
+    plot.setScale('y', { min: null, max: null });
+    plot.setScale('x', min < max ? { min, max } : { min: start, max: end });
+    bounds.current = { start, end };
+  }, [history, series]);
+
+  return <>
+    <div ref={container} role="img"
+      aria-label={`${metric.label}: lowest ${metric.format(series.min)}, highest ${metric.format(series.max)} over ${history.count} samples`} />
+    <button class="btn btn-sm btn-outline-secondary mt-2" onClick={() => {
+      if (chart.current && bounds.current) chart.current.setScale('x', { min: bounds.current.start, max: bounds.current.end });
+    }} aria-label={`Reset zoom for ${metric.label}`}>Reset zoom</button>
+  </>;
+}
+
 function ResourceChart({ metric, history }) {
   const series = history?.series[metric.key];
   if (!series?.points.length) return <div class="col-12 col-lg-6"><div class="card h-100"><div class="card-body">
@@ -23,29 +92,10 @@ function ResourceChart({ metric, history }) {
     <p class="text-body-secondary mb-0">No samples in this time range.</p>
   </div></div></div>;
 
-  const { min, max, points } = series;
-  const top = min === max ? max + Math.max(1, Math.abs(max) * 0.05) : max;
-  const bottom = min === max ? Math.max(0, min - Math.max(1, Math.abs(min) * 0.05)) : min;
-  const coordinates = points.map(point => {
-    const x = (point.timestamp - history.start) / (history.end - history.start) * 600;
-    const y = 90 - (point.value - bottom) / (top - bottom) * 80;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
-
   return <div class="col-12 col-lg-6"><div class="card h-100"><div class="card-body">
     <h3 class="h6">{metric.label}</h3>
-    <p class="small text-body-secondary mb-1">Lowest: {metric.format(min)} · Highest: {metric.format(max)}</p>
-    <svg viewBox="0 0 600 100" width="100%" height="120" preserveAspectRatio="none" role="img"
-      aria-label={`${metric.label}: lowest ${metric.format(min)}, highest ${metric.format(max)} over ${history.count} samples`}>
-      <line x1="0" x2="600" y1="90" y2="90" stroke="currentColor" opacity="0.3" />
-      {points.length === 1
-        ? <circle cx={coordinates.split(',')[0]} cy={coordinates.split(',')[1]} r="3" fill="currentColor" />
-        : <polyline points={coordinates} fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke" />}
-    </svg>
-    <div class="d-flex justify-content-between small text-body-secondary">
-      <span>{new Date(history.start).toLocaleString()}</span>
-      <span>{new Date(history.end).toLocaleString()}</span>
-    </div>
+    <p class="small text-body-secondary mb-1">Lowest: {metric.format(series.min)} · Highest: {metric.format(series.max)}</p>
+    <ResourcePlot metric={metric} series={series} history={history} />
   </div></div></div>;
 }
 
@@ -100,7 +150,7 @@ export default function ResourceCharts() {
         {ranges.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
       </select>
     </div>
-    <p class="text-body-secondary">Samples are recorded every 5 seconds and charts refresh every 30 seconds. Lowest and highest include every sample in the selected range. Charts use independent scales and connect samples across gaps. Bun heap values may be inconsistent.</p>
+    <p class="text-body-secondary">Samples are recorded every 5 seconds and charts refresh every 30 seconds. Lowest and highest include every sample in the selected range, even when zoomed. Drag a chart to zoom; use Reset zoom to show the full range. Charts use independent scales and connect samples across gaps. Bun heap values may be inconsistent.</p>
     {loading && <p role="status">Loading resource history...</p>}
     {error && <div class="alert alert-danger" role="alert">{error} <button class="btn btn-sm btn-outline-danger" onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {history?.recordingError && <div class="alert alert-warning" role="alert">{history.recordingError}</div>}

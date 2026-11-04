@@ -1,0 +1,21 @@
+{
+  "name": "@v2ray-manager/gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "argon2": "^0.44.0",
+    "classic-level": "^3.0.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.2.1",
+    "http-proxy-3": "^2.0.2",
+    "passport": "^0.7.0",
+    "passport-custom": "^1.1.1",
+    "passport-local": "^1.0.0",
+    "pg": "^8.16.3",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
+    "sequelize": "^6.37.7",
+    "socket.io": "^4.8.1"
+  }
+}

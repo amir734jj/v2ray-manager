@@ -1,0 +1,10 @@
+{
+  "name": "@v2ray-manager/generator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "v2ray-tools": "github:amir734jj/v2ray-tools"
+  }
+}
