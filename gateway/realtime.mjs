@@ -127,7 +127,13 @@ export function attachRealtime(server, { accounts, blocklist, secureCookies, log
     }
 
     socket.on('subscribe', resource => {
-      if (!['status', 'users'].includes(resource)) return;
+      if (!['status', 'users'].includes(resource)) {
+        socket.emit('resource-error', {
+          resource: typeof resource === 'string' ? resource : '',
+          message: 'Unknown realtime resource',
+        });
+        return;
+      }
       subscriptions.add(resource);
       client.schedule(resource);
     });

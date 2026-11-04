@@ -70,6 +70,7 @@ function App() {
       return;
     }
     const connection = io({ transports: ['websocket'], autoConnect: false });
+    let retry;
     function expire() {
       if (!currentUser.current) return;
       currentUser.current = null;
@@ -80,14 +81,22 @@ function App() {
     }
     function connectionError(failure) {
       if (failure.data?.code === 'UNAUTHORIZED') expire();
+      else if (failure.data?.code === 'UNAVAILABLE') {
+        clearTimeout(retry);
+        retry = setTimeout(() => connection.connect(), 5000);
+      }
     }
+    function connected() { clearTimeout(retry); }
     connection.on('session-expired', expire);
     connection.on('connect_error', connectionError);
+    connection.on('connect', connected);
     setSocket(connection);
     connection.connect();
     return () => {
       connection.off('session-expired', expire);
       connection.off('connect_error', connectionError);
+      connection.off('connect', connected);
+      clearTimeout(retry);
       connection.disconnect();
     };
   }, [user?.id]);
