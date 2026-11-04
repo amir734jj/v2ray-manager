@@ -20,6 +20,8 @@ services:
       context: .
       dockerfile: gateway/Dockerfile
     restart: always
+    environment:
+      - GATEWAY_TRUST_CLOUDFLARE_HEADERS=${GATEWAY_TRUST_CLOUDFLARE_HEADERS:-false}
     depends_on:
       v2ray:
         condition: service_healthy

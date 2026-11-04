@@ -181,6 +181,56 @@ Expected response: `ok`. The gRPC gateway also serves `/healthz` over HTTP/2,
 but a health response does not prove a complete proxy tunnel works; validate
 with a generated gRPC profile.
 
+### Client IP and country logs
+
+The gateway uses Pino for structured JSON logging to stdout, captured by
+Docker/Coolify. Startup and connection messages use the `info` level (30),
+invalid metadata uses `warn` (40), and proxy/server failures use `error` (50)
+with serialized error details. All records include an ISO `time` and
+`service: "gateway"`.
+
+The gateway writes one connection record for every recognized WebSocket
+upgrade or gRPC stream routed upstream. These are connection attempts, not
+proof of V2Ray authentication. Health checks and unknown routes are not logged.
+
+To log visitor identities behind Cloudflare and Coolify:
+
+1. Enable **Network > IP Geolocation** for the domain in Cloudflare.
+2. Ensure Coolify/Traefik preserves `CF-Connecting-IP` and `CF-IPCountry`.
+3. Restrict origin access to Cloudflare and keep the gateway accessible only
+   through trusted proxies. Otherwise direct callers can forge these headers.
+4. Set `GATEWAY_TRUST_CLOUDFLARE_HEADERS=true` in Coolify and redeploy.
+
+Example connection log:
+
+```json
+{"level":30,"time":"2026-11-04T17:00:00.000Z","service":"gateway","event":"gateway_connection","transport":"ws","protocol":"vless","ip":"203.0.113.42","country":"US","ipSource":"cloudflare","msg":"Gateway connection attempt"}
+```
+
+By default, Cloudflare headers are ignored: `ip` is the immediate socket
+peer (usually the proxy), `ipSource` is `socket`, and `country` is `null`.
+Missing or invalid Cloudflare IPs fall back to the socket peer; invalid
+metadata emits a warning when header trust is enabled. Missing or invalid
+country values are `null`. Cloudflare's `XX` (unknown) and `T1` (Tor) codes
+are preserved. Country reflects the connecting IP, not necessarily the user's
+physical location. No external geolocation lookup is made.
+
+Logs exclude credentials, request paths, and payloads. Treat IP logs as
+sensitive data and configure appropriate access and retention in Coolify.
+
+### v2rayNG custom-profile troubleshooting
+
+Generated profiles listen on local SOCKS port `1080`. When importing a full
+`client.json` into v2rayNG, its VPN tunnel must use that same local port.
+If v2rayNG uses `10808`, either change its local SOCKS port to `1080`, or
+change the profile's SOCKS inbound port to `10808` and re-import it.
+Do not change the remote outbound port `443`.
+
+Repeated `socks5 client connect` / `socks5 session connect` errors in the
+VPN tunnel log can indicate this local port mismatch, even when the core
+starts successfully. This is separate from connectivity to the public
+WebSocket or gRPC domains.
+
 ## Tests
 
 ```bash
@@ -190,6 +240,9 @@ npm test
 The always-on gateway tests exercise WebSocket upgrades and bidirectional
 HTTP/2 streams for all four protocols, metadata and trailers, cancellation,
 upstream failures, and both health checks.
+The WebSocket gateway uses `http-proxy-3` to avoid the deprecated
+`util._extend` calls in the original `http-proxy`; the tests check for `DEP0060`
+warnings after proxying traffic.
 
 Optional runtime tests run actual V2Fly when `V2RAY_TEST_BINARY` contains its
 absolute path. Set `SS_PLUGIN_TEST_BINARY` to also test plugin interoperability.

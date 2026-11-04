@@ -26,12 +26,12 @@ async function freePort() {
   return port;
 }
 
-async function http2Request(port, path) {
+async function http2Request(port, path, requestHeaders = {}) {
   const session = connect(`http://127.0.0.1:${port}`);
   try {
     return await new Promise((resolve, reject) => {
       session.once('error', reject);
-      const stream = session.request({ ':path': path, ':method': 'POST' });
+      const stream = session.request({ ...requestHeaders, ':path': path, ':method': 'POST' });
       const chunks = [];
       let headers;
       let trailers;
@@ -47,7 +47,7 @@ async function http2Request(port, path) {
   }
 }
 
-test('gateway proxies WebSocket and HTTP2 gRPC through separate listeners', { timeout: 30000 }, async t => {
+async function testGateway(t, trustCloudflareHeaders) {
   const servers = [];
   const sockets = new Set();
   const sessions = new Set();
@@ -58,6 +58,7 @@ test('gateway proxies WebSocket and HTTP2 gRPC through separate listeners', { ti
     GATEWAY_PORT: String(await freePort()),
     GATEWAY_GRPC_PORT: String(await freePort()),
     V2RAY_UPSTREAM_HOST: '127.0.0.1',
+    GATEWAY_TRUST_CLOUDFLARE_HEADERS: String(trustCloudflareHeaders),
   };
   let gateway;
   let logs = '';
@@ -122,7 +123,7 @@ test('gateway proxies WebSocket and HTTP2 gRPC through separate listeners', { ti
     env[`V2RAY_${protocol.toUpperCase()}_GRPC_PORT`] = String(await listen(grpc));
   }
 
-  gateway = spawn(process.execPath, [gatewayPath], { env, windowsHide: true });
+  gateway = spawn(process.execPath, ['--trace-deprecation', gatewayPath], { env, windowsHide: true });
   gateway.stderr.on('data', data => { logs += data; });
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Gateway startup timed out: ${logs}`)), 5000);
@@ -154,7 +155,12 @@ test('gateway proxies WebSocket and HTTP2 gRPC through separate listeners', { ti
           hostname: '127.0.0.1',
           port: wsPort,
           path: `/${protocol}`,
-          headers: { Connection: 'Upgrade', Upgrade: 'websocket' },
+          headers: {
+            Connection: 'Upgrade',
+            Upgrade: 'websocket',
+            'CF-Connecting-IP': '203.0.113.42',
+            'CF-IPCountry': 'US',
+          },
         });
         req.once('error', reject);
         req.once('response', response => reject(new Error(`Unexpected status ${response.statusCode}`)));
@@ -188,6 +194,8 @@ test('gateway proxies WebSocket and HTTP2 gRPC through separate listeners', { ti
           te: 'trailers',
           'grpc-timeout': '30S',
           'client-metadata': 'preserved',
+          'cf-connecting-ip': '2001:db8::42',
+          'cf-ipcountry': 'DE',
         }, { waitForTrailers: true });
         const firstFrame = Buffer.from([0, 0, 0, 0, 3, 0, 255, 1]);
         const secondFrame = Buffer.from([0, 0, 0, 0, 2, 128, 0]);
@@ -293,4 +301,71 @@ test('gateway proxies WebSocket and HTTP2 gRPC through separate listeners', { ti
       );
     }
   });
-});
+
+  await t.test('proxy traffic does not use deprecated util._extend', () => {
+    assert.doesNotMatch(logs, /DEP0060|util\._extend/);
+  });
+
+  await t.test('connection logs use Cloudflare identity only when explicitly trusted', () => {
+    const allRecords = logs.trim().split(/\r?\n/).map(line => JSON.parse(line));
+    for (const record of allRecords) {
+      assert.equal(record.service, 'gateway');
+      assert.ok(Number.isFinite(Date.parse(record.time)));
+    }
+    const startup = allRecords.filter(record => record.msg.includes('gateway listening on port'));
+    assert.equal(startup.length, 2);
+    assert.ok(startup.every(record => record.level === 30));
+    const errors = allRecords.filter(record => record.level === 50);
+    assert.ok(errors.length > 0);
+    assert.ok(errors.every(record => typeof record.err.message === 'string' && typeof record.err.stack === 'string'));
+    const records = allRecords.filter(record => record.event === 'gateway_connection');
+    for (const protocol of protocols) {
+      for (const transport of ['ws', 'grpc']) {
+        const record = records.find(value => value.protocol === protocol && value.transport === transport);
+        assert.ok(record, `Missing ${protocol} ${transport} connection log`);
+        assert.equal(record.event, 'gateway_connection');
+        assert.equal(record.level, 30);
+        assert.equal(record.ip, trustCloudflareHeaders
+          ? (transport === 'ws' ? '203.0.113.42' : '2001:db8::42') : '127.0.0.1');
+        assert.equal(record.country, trustCloudflareHeaders ? (transport === 'ws' ? 'US' : 'DE') : null);
+        assert.equal(record.ipSource, trustCloudflareHeaders ? 'cloudflare' : 'socket');
+      }
+    }
+    const direct = records.find(value => value.transport === 'grpc' && value.ipSource === 'socket');
+    assert.ok(direct, 'Missing socket fallback for requests without Cloudflare headers');
+    assert.equal(direct.ip, '127.0.0.1');
+    assert.equal(direct.country, null);
+    assert.equal(records.filter(value => value.transport === 'ws').length, protocols.length);
+  });
+
+  await t.test('invalid Cloudflare metadata is ignored without interrupting traffic', async () => {
+    const offset = logs.length;
+    for (const headers of [
+      { 'cf-connecting-ip': 'invalid-ip', 'cf-ipcountry': 'US' },
+      { 'cf-connecting-ip': '203.0.113.42', 'cf-ipcountry': 'invalid-country' },
+    ]) {
+      assert.equal((await http2Request(grpcPort, '/vless-grpc/Metadata', headers)).headers[':status'], 200);
+    }
+    await run(process.execPath, [healthcheckPath], { env });
+    const metadataLogs = logs.slice(offset);
+    const allRecords = metadataLogs.trim().split(/\r?\n/).map(line => JSON.parse(line));
+    const records = allRecords.filter(record => record.event === 'gateway_connection');
+    assert.equal(records.length, 2);
+    assert.equal(records[0].ip, '127.0.0.1');
+    assert.equal(records[0].country, null);
+    assert.equal(records[1].ip, trustCloudflareHeaders ? '203.0.113.42' : '127.0.0.1');
+    assert.equal(records[1].country, null);
+    if (trustCloudflareHeaders) {
+      assert.equal(allRecords.filter(record => record.level === 40).length, 2);
+      assert.match(metadataLogs, /invalid CF-Connecting-IP ignored/);
+      assert.match(metadataLogs, /invalid CF-IPCountry ignored/);
+    } else {
+      assert.doesNotMatch(metadataLogs, /Gateway connection metadata/);
+    }
+  });
+}
+
+for (const trustCloudflareHeaders of [false, true]) {
+  test(`gateway proxies WS and gRPC (trust Cloudflare headers: ${trustCloudflareHeaders})`,
+    { timeout: 30000 }, t => testGateway(t, trustCloudflareHeaders));
+}
