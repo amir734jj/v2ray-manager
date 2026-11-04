@@ -20,15 +20,35 @@ const counters = ['ws', 'grpc'].flatMap(transport =>
     transport, protocol, active: 0, total: 0, errors: 0,
   })),
 );
+const countries = new Map();
+const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 
-export function trackConnection(transport, protocol, connection) {
+export function trackConnection(transport, protocol, connection, country) {
   const counter = counters.find(item => item.transport === transport && item.protocol === protocol);
-  counter.active++;
-  counter.total++;
-  connection.once('close', () => { counter.active--; });
+  const code = typeof country === 'string' && /^(?:[A-Z]{2}|T1)$/.test(country) && country !== 'XX'
+    ? country : 'unknown';
+  if (!countries.has(code)) {
+    countries.set(code, {
+      code,
+      name: code === 'unknown' ? 'Unknown' : code === 'T1' ? 'Tor' : countryNames.of(code),
+      active: 0, total: 0, errors: 0,
+    });
+  }
+  const countryCounter = countries.get(code);
+  for (const row of [counter, countryCounter]) {
+    row.active++;
+    row.total++;
+  }
+  connection.once('close', () => {
+    counter.active--;
+    countryCounter.active--;
+  });
   let failed = false;
   return () => {
-    if (!failed) counter.errors++;
+    if (!failed) {
+      counter.errors++;
+      countryCounter.errors++;
+    }
     failed = true;
   };
 }
@@ -43,6 +63,7 @@ function snapshot() {
       errors: total.errors + row.errors,
     }), { active: 0, total: 0, errors: 0 }),
     connections: counters,
+    countries: [...countries.values()].sort((a, b) => b.total - a.total || a.code.localeCompare(b.code)),
   };
 }
 

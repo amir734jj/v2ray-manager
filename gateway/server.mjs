@@ -50,6 +50,7 @@ function logConnection(transport, protocol, headers, remoteAddress) {
     }
   }
   logger.info(`${transport.toUpperCase()} ${protocol} | IP=${ip ?? 'unknown'} | country=${country ?? 'unknown'}`);
+  return country;
 }
 
 const protocols = {
@@ -151,8 +152,8 @@ grpcServer.on('stream', (stream, headers) => {
     return;
   }
 
-  logConnection('grpc', service.slice(0, -'-grpc'.length), headers, stream.session.socket.remoteAddress);
-  const recordFailure = trackConnection('grpc', service.slice(0, -'-grpc'.length), stream);
+  const country = logConnection('grpc', service.slice(0, -'-grpc'.length), headers, stream.session.socket.remoteAddress);
+  const recordFailure = trackConnection('grpc', service.slice(0, -'-grpc'.length), stream, country);
   const session = connect(target);
   let upstream;
   let failed = false;
@@ -210,8 +211,8 @@ server.on('upgrade', (request, socket, head) => {
     socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
     return;
   }
-  logConnection('ws', path.slice(1), request.headers, socket.remoteAddress);
-  wsFailures.set(request, trackConnection('ws', path.slice(1), socket));
+  const country = logConnection('ws', path.slice(1), request.headers, socket.remoteAddress);
+  wsFailures.set(request, trackConnection('ws', path.slice(1), socket, country));
   proxy.ws(request, socket, head, { target });
 });
 

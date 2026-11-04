@@ -204,6 +204,10 @@ Counters are in memory, reset on gateway restart, and represent one process
 users or proof that browsing works. Health checks, unknown routes, and status
 visits are excluded. Errors count proxy transport failures, not gRPC application
 status codes. No IPs, credentials, or destinations are exposed on the page.
+The country table groups active connections, attempts, and errors by trusted
+Cloudflare country metadata when `GATEWAY_TRUST_CLOUDFLARE_HEADERS=true`.
+Otherwise connections appear as Unknown, as do missing/invalid values and
+Cloudflare's `XX` code. `T1` is shown as Tor. No geolocation API is called.
 
 The endpoints have no built-in authentication: anyone who can reach the
 domain can see aggregate activity. Restrict `/status` and `/status.json` with

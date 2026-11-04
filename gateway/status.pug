@@ -33,6 +33,27 @@ html(lang="en" data-bs-theme="dark")
                 td.text-end= row.active
                 td.text-end= row.total
                 td.text-end= row.errors
+      h2.h4.mt-4 Connections by country
+      p.text-body-secondary Based on trusted Cloudflare metadata; unavailable values appear as Unknown.
+      .table-responsive
+        table.table.table-striped.align-middle
+          thead
+            tr
+              th(scope="col") Country
+              th(scope="col") Code
+              each heading in ['Active', 'Total', 'Errors']
+                th.text-end(scope="col")= heading
+          tbody
+            each row in countries
+              tr
+                th(scope="row")= row.name
+                td= row.code
+                td.text-end= row.active
+                td.text-end= row.total
+                td.text-end= row.errors
+            if countries.length === 0
+              tr
+                td.text-body-secondary(colspan="5") No connections yet.
       footer.mt-4.small.text-body-secondary
         p
           | Started #{startedAt} &middot; Uptime #{uptimeSeconds}s &middot;&nbsp;

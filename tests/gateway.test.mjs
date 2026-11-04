@@ -267,6 +267,8 @@ async function testGateway(t, trustCloudflareHeaders) {
         assert.equal(counter.active, 1);
         assert.equal(counter.total, 1);
         assert.equal(counter.errors, 0);
+        const country = status.countries.find(row => row.code === (trustCloudflareHeaders ? 'DE' : 'unknown'));
+        assert.equal(country.active, 1);
         stream.end(secondFrame);
         await ended;
         assert.deepEqual(Buffer.concat(chunks), Buffer.concat([firstFrame, secondFrame]));
@@ -424,6 +426,15 @@ async function testGateway(t, trustCloudflareHeaders) {
     assert.equal(status.connections.find(row => row.transport === 'grpc' && row.protocol === 'shadowsocks').errors, 1);
     assert.equal(status.totals.errors, 2);
     assert.equal(status.totals.total, 15);
+    assert.equal(status.countries.reduce((sum, row) => sum + row.total, 0), status.totals.total);
+    assert.ok(status.countries.every(row => row.active === 0));
+    if (trustCloudflareHeaders) {
+      assert.equal(status.countries.find(row => row.code === 'US').total, 4);
+      assert.equal(status.countries.find(row => row.code === 'DE').total, 4);
+      assert.equal(status.countries.find(row => row.code === 'unknown').total, 7);
+    } else {
+      assert.deepEqual(status.countries, [{ code: 'unknown', name: 'Unknown', ...status.totals }]);
+    }
     assert.doesNotMatch(JSON.stringify(status), /203\.0\.113|2001:db8|127\.0\.0|cf-|password|metadata|Tun/);
     const h2 = await http2Request(grpcPort, '/status.json', { ':method': 'GET' });
     assert.deepEqual(JSON.parse(h2.body).totals, status.totals);
