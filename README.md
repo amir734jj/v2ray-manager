@@ -100,14 +100,16 @@ The navigation bar links to **Status**, **Blocked IPs**, and, for administrators
 **Users**. Login and registration have their own pages. Active viewers can open
 the status and blocklist pages, but management actions remain administrator-only.
 
-The gateway Docker build installs dependencies and builds the browser assets.
-For a non-Docker setup:
+The gateway Docker build uses Node/npm to install dependencies and build the
+browser assets, then runs the gateway with Bun 1.4.4 on Alpine as the non-root
+`bun` user. The generator still uses Node. The gateway healthcheck also uses Bun.
+For a non-Docker setup, install Node/npm for the build and Bun for the gateway:
 
 ```bash
 npm ci
 npm run build
 # Set DATABASE_URL (and GATEWAY_SECURE_COOKIES=false only for local HTTP):
-node gateway/server.mjs
+bun gateway/server.mjs
 ```
 
 Rebuild after frontend changes. Source is in [frontend](./frontend); generated
