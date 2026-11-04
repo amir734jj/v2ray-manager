@@ -20,6 +20,9 @@ services:
       context: .
       dockerfile: gateway/Dockerfile
     restart: always
+    labels:
+      - "traefik.http.services.https-2-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}-gateway-3e21.loadbalancer.server.scheme=h2c"
+      - "traefik.http.services.https-3-${COOLIFY_RESOURCE_UUID:?COOLIFY_RESOURCE_UUID is required}-gateway-3e21.loadbalancer.server.scheme=h2c"
     environment:
       - GATEWAY_TRUST_CLOUDFLARE_HEADERS=${GATEWAY_TRUST_CLOUDFLARE_HEADERS:-false}
     depends_on:

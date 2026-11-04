@@ -181,6 +181,19 @@ Expected response: `ok`. The gRPC gateway also serves `/healthz` over HTTP/2,
 but a health response does not prove a complete proxy tunnel works; validate
 with a generated gRPC profile.
 
+### Coolify gRPC upstream labels
+
+The Compose gateway labels set `h2c` on the existing Coolify-generated HTTPS
+services for `grpc.hesamian.com` and `www.grpc.hesamian.com`. The application ID
+is interpolated from `COOLIFY_RESOURCE_UUID`; it must be available to Compose
+(set it explicitly for local Compose commands). Missing values fail validation
+instead of producing labels for an empty service ID.
+The domain indexes (`https-2`, `https-3`) and suffix (`gateway-3e21`) still
+match the current generated service names. If the application is recreated or
+domains are reordered, check the deployable Compose and update the names to
+match the gRPC routers' `service` values. WebSocket/status services must keep
+their ordinary HTTP upstream scheme.
+
 ### Read-only status page
 
 For a separate status domain, add `https://v2ray.hesamian.com` in Coolify,
