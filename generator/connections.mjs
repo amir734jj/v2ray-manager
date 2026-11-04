@@ -61,9 +61,50 @@ export function configureClient(config, serverConfig, host) {
     : outbound);
 
   if (existing.length === 1 && existing[0].protocol === 'shadowsocks') {
+    const socksTag = 'shadowsocks-socks';
+    const dnsTag = 'shadowsocks-dns';
+    const queryTag = 'shadowsocks-dns-query';
+    const blockedTag = 'shadowsocks-udp-blocked';
+    const proxyTag = config.outbounds.find(outbound => outbound.protocol === 'shadowsocks').tag;
+    const socksTags = [];
     for (const inbound of config.inbounds ?? []) {
-      if (inbound.protocol === 'socks') inbound.settings = { ...inbound.settings, udp: false };
+      if (inbound.protocol === 'socks') {
+        inbound.tag ??= socksTag;
+        socksTags.push(inbound.tag);
+        inbound.settings = { ...inbound.settings, udp: true };
+      }
     }
+    config.dns = {
+      servers: [
+        {
+          address: 'https+local://1.1.1.1/dns-query',
+          domains: [`full:${host}`],
+          skipFallback: true,
+        },
+        'tcp://1.1.1.1',
+      ],
+      tag: queryTag,
+      disableFallbackIfMatch: true,
+    };
+    config.outbounds = config.outbounds.filter(outbound => ![dnsTag, blockedTag].includes(outbound.tag));
+    config.outbounds.push(
+      {
+        tag: dnsTag,
+        protocol: 'dns',
+        settings: { network: 'tcp', address: '1.1.1.1', port: 53 },
+        proxySettings: { tag: proxyTag },
+      },
+      { tag: blockedTag, protocol: 'blackhole' },
+    );
+    config.routing ??= {};
+    const rules = (config.routing.rules ?? []).filter(rule =>
+      ![dnsTag, blockedTag].includes(rule.outboundTag) && !rule.inboundTag?.includes(queryTag));
+    config.routing.rules = [
+      { type: 'field', inboundTag: [queryTag], outboundTag: proxyTag },
+      { type: 'field', inboundTag: socksTags, network: 'tcp,udp', port: '53', outboundTag: dnsTag },
+      { type: 'field', inboundTag: socksTags, network: 'udp', outboundTag: blockedTag },
+      ...rules,
+    ];
   }
 
   return config;

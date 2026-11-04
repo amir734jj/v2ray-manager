@@ -1,10 +1,11 @@
 {
   "inbounds": [
     {
+      "tag": "shadowsocks-socks",
       "listen": "127.0.0.1",
       "port": 10808,
       "protocol": "socks",
-      "settings": { "udp": false }
+      "settings": { "udp": true }
     }
   ],
   "outbounds": [
@@ -30,11 +31,34 @@
       "mux": { "enabled": false }
     },
     { "tag": "direct",  "protocol": "freedom" },
-    { "tag": "blocked", "protocol": "blackhole" }
+    { "tag": "blocked", "protocol": "blackhole" },
+    {
+      "tag": "shadowsocks-dns",
+      "protocol": "dns",
+      "settings": { "network": "tcp", "address": "1.1.1.1", "port": 53 },
+      "proxySettings": { "tag": "proxy" }
+    },
+    { "tag": "shadowsocks-udp-blocked", "protocol": "blackhole" }
   ],
-  "dns": { "servers": ["1.1.1.1", "8.8.8.8"] },
+  "dns": {
+    "servers": [
+      {
+        "address": "https+local://1.1.1.1/dns-query",
+        "domains": ["full:YOUR_SERVER_IP"],
+        "skipFallback": true
+      },
+      "tcp://1.1.1.1"
+    ],
+    "tag": "shadowsocks-dns-query",
+    "disableFallbackIfMatch": true
+  },
   "routing": {
     "domainStrategy": "IPIfNonMatch",
-    "rules": [{ "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }]
+    "rules": [
+      { "type": "field", "inboundTag": ["shadowsocks-dns-query"], "outboundTag": "proxy" },
+      { "type": "field", "inboundTag": ["shadowsocks-socks"], "network": "tcp,udp", "port": "53", "outboundTag": "shadowsocks-dns" },
+      { "type": "field", "inboundTag": ["shadowsocks-socks"], "network": "udp", "outboundTag": "shadowsocks-udp-blocked" },
+      { "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }
+    ]
   }
 }

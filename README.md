@@ -139,6 +139,36 @@ these files for each protocol:
 Shadowsocks links require a client supporting `v2ray-plugin`; Shadowsocks is
 TCP-only. Generated SOCKS listeners use local port **10808**.
 
+### Shadowsocks in v2rayNG
+
+Import the generated `shadowsocks/client.json` as a **custom configuration**,
+not the `ss://` link or QR code. v2rayNG's Shadowsocks link importer does not
+apply the `v2ray-plugin` WebSocket/TLS options, so importing that link can
+silently create a plain-TCP profile. Raw Shadowsocks TCP cannot pass through
+this Cloudflare HTTP/WebSocket deployment.
+
+The generated JSON explicitly sets WebSocket transport, TLS, the public hostname
+for SNI and Host, and path `/shadowsocks`. Use the generated file, not the
+unfilled template, and re-import it after changing credentials or the hostname.
+The Shadowsocks-only profile accepts local SOCKS UDP so v2rayNG's VPN bridge
+can send DNS queries. Local TCP/UDP port 53 queries are intercepted by a DNS
+outbound; DNS requests travel over TCP through the Shadowsocks tunnel.
+Only the gateway hostname is bootstrapped using direct encrypted DoH to
+`https://1.1.1.1/dns-query`, avoiding a circular dependency on the tunnel.
+Other SOCKS UDP traffic is blocked, not sent directly or forwarded through
+the TCP-only Shadowsocks server. This does not enable general UDP or QUIC.
+Prefer VLESS, VMess, or Trojan when using share links in v2rayNG.
+
+If an older custom profile reports `socks5 client res.rep 7`, regenerate and
+re-import it: older Shadowsocks profiles disabled local SOCKS UDP entirely.
+Redeploying regenerates FTP exports when configured; `npm run rotate` also
+updates local profiles (pass the existing `--uuid` to retain credentials).
+
+Client logs showing `transport/internet/tcp` directly to the public hostname
+on port 443 followed by `failed to read IV` / `connection reset by peer`
+are consistent with a missing WebSocket/TLS transport; those errors alone
+do not establish a Bun regression.
+
 Old files, profiles, and Coolify routes must be removed manually. There is no
 automatic legacy cleanup or migration; regenerate and re-import old profiles.
 
