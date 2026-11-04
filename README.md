@@ -183,11 +183,11 @@ with a generated gRPC profile.
 
 ### Client IP and country logs
 
-The gateway uses Pino for structured JSON logging to stdout, captured by
-Docker/Coolify. Startup and connection messages use the `info` level (30),
-invalid metadata uses `warn` (40), and proxy/server failures use `error` (50)
-with serialized error details. All records include an ISO `time` and
-`service: "gateway"`.
+The gateway uses Pino with `pino-pretty` for compact text logs to stdout,
+captured by Docker/Coolify. Lines show UTC time, severity, and a message.
+Startup and connections use `INFO`, invalid metadata uses `WARN`, and
+proxy/server failures use `ERROR` with the error message. JSON metadata,
+stack traces, and ANSI colors are omitted.
 
 The gateway writes one connection record for every recognized WebSocket
 upgrade or gRPC stream routed upstream. These are connection attempts, not
@@ -203,15 +203,15 @@ To log visitor identities behind Cloudflare and Coolify:
 
 Example connection log:
 
-```json
-{"level":30,"time":"2026-11-04T17:00:00.000Z","service":"gateway","event":"gateway_connection","transport":"ws","protocol":"vless","ip":"203.0.113.42","country":"US","ipSource":"cloudflare","msg":"Gateway connection attempt"}
+```text
+[17:00:00] INFO: WS vless | IP=203.0.113.42 | country=US
 ```
 
-By default, Cloudflare headers are ignored: `ip` is the immediate socket
-peer (usually the proxy), `ipSource` is `socket`, and `country` is `null`.
+By default, Cloudflare headers are ignored: `IP` is the immediate socket
+peer (usually the proxy), and `country` is `unknown`.
 Missing or invalid Cloudflare IPs fall back to the socket peer; invalid
 metadata emits a warning when header trust is enabled. Missing or invalid
-country values are `null`. Cloudflare's `XX` (unknown) and `T1` (Tor) codes
+country values are `unknown`. Cloudflare's `XX` (unknown) and `T1` (Tor) codes
 are preserved. Country reflects the connecting IP, not necessarily the user's
 physical location. No external geolocation lookup is made.
 

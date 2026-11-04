@@ -3,11 +3,17 @@ import { createServer as createHttp2Server, connect, constants } from 'node:http
 import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
 import pino from 'pino';
+import pretty from 'pino-pretty';
 
 const logger = pino({
-  base: { service: 'gateway' },
-  timestamp: pino.stdTimeFunctions.isoTime,
-});
+  base: undefined,
+}, pretty({
+  colorize: false,
+  translateTime: 'UTC:HH:MM:ss',
+  ignore: 'pid,hostname,transport,port,err',
+  singleLine: true,
+  sync: true,
+}));
 
 function parsePort(value, name) {
   const port = Number(value);
@@ -28,13 +34,11 @@ if (!['true', 'false'].includes(trustCloudflareHeaders)) {
 function logConnection(transport, protocol, headers, remoteAddress) {
   let ip = remoteAddress ?? null;
   let country = null;
-  let ipSource = 'socket';
   if (trustCloudflareHeaders === 'true') {
     const clientIp = headers['cf-connecting-ip'];
     const clientCountry = headers['cf-ipcountry'];
     if (typeof clientIp === 'string' && isIP(clientIp)) {
       ip = clientIp;
-      ipSource = 'cloudflare';
       if (typeof clientCountry === 'string' && /^(?:[A-Z]{2}|T1)$/.test(clientCountry)) {
         country = clientCountry;
       } else if (clientCountry !== undefined) {
@@ -44,14 +48,7 @@ function logConnection(transport, protocol, headers, remoteAddress) {
       logger.warn('Gateway connection metadata: invalid CF-Connecting-IP ignored');
     }
   }
-  logger.info({
-    event: 'gateway_connection',
-    transport,
-    protocol,
-    ip,
-    country,
-    ipSource,
-  }, 'Gateway connection attempt');
+  logger.info(`${transport.toUpperCase()} ${protocol} | IP=${ip ?? 'unknown'} | country=${country ?? 'unknown'}`);
 }
 
 const protocols = {
@@ -83,7 +80,7 @@ const proxy = httpProxy.createProxyServer({
 });
 
 proxy.on('error', (error, _request, response) => {
-  logger.error({ err: error }, 'Gateway proxy error');
+  logger.error({ err: error }, `Gateway proxy error: ${error.message}`);
   if ('writeHead' in response) {
     if (!response.headersSent) response.writeHead(502);
     response.end('Bad Gateway\n');
@@ -112,12 +109,12 @@ const grpcServer = createHttp2Server();
 const grpcSessions = new Set();
 grpcServer.on('session', session => {
   grpcSessions.add(session);
-  session.on('error', error => logger.error({ err: error }, 'Gateway gRPC session error'));
+  session.on('error', error => logger.error({ err: error }, `Gateway gRPC session error: ${error.message}`));
   session.once('close', () => grpcSessions.delete(session));
 });
 
 grpcServer.on('stream', (stream, headers) => {
-  stream.on('error', error => logger.error({ err: error }, 'Gateway gRPC stream error'));
+  stream.on('error', error => logger.error({ err: error }, `Gateway gRPC stream error: ${error.message}`));
   const path = headers[':path'] ?? '';
   if (path === '/healthz') {
     stream.respond({ ':status': 200, 'content-type': 'text/plain' });
@@ -139,7 +136,7 @@ grpcServer.on('stream', (stream, headers) => {
   const fail = error => {
     if (failed || stream.destroyed) return;
     failed = true;
-    logger.error({ err: error }, 'Gateway gRPC proxy error');
+    logger.error({ err: error }, `Gateway gRPC proxy error: ${error.message}`);
     if (stream.headersSent) {
       stream.close(constants.NGHTTP2_INTERNAL_ERROR);
     } else {
@@ -194,7 +191,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 function serverError(error) {
-  logger.error({ err: error }, 'Gateway server error');
+  logger.error({ err: error }, `Gateway server error: ${error.message}`);
   process.exitCode = 1;
   shutdown();
 }
@@ -222,13 +219,13 @@ function shutdown() {
   server.close(error => {
     proxy.close();
     if (error) {
-      logger.error({ err: error }, 'Gateway shutdown error');
+      logger.error({ err: error }, `Gateway shutdown error: ${error.message}`);
       process.exitCode = 1;
     }
   });
   grpcServer.close(error => {
     if (error) {
-      logger.error({ err: error }, 'Gateway gRPC shutdown error');
+      logger.error({ err: error }, `Gateway gRPC shutdown error: ${error.message}`);
       process.exitCode = 1;
     }
   });

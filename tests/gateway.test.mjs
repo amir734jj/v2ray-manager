@@ -307,35 +307,32 @@ async function testGateway(t, trustCloudflareHeaders) {
   });
 
   await t.test('connection logs use Cloudflare identity only when explicitly trusted', () => {
-    const allRecords = logs.trim().split(/\r?\n/).map(line => JSON.parse(line));
+    const allRecords = logs.trim().split(/\r?\n/);
     for (const record of allRecords) {
-      assert.equal(record.service, 'gateway');
-      assert.ok(Number.isFinite(Date.parse(record.time)));
+      assert.match(record, /^\[\d{2}:\d{2}:\d{2}\] (INFO|WARN|ERROR): /);
+      assert.doesNotMatch(record, /"level"|"service"|"ipSource"|\u001b/);
     }
-    const startup = allRecords.filter(record => record.msg.includes('gateway listening on port'));
+    const startup = allRecords.filter(record => record.includes('gateway listening on port'));
     assert.equal(startup.length, 2);
-    assert.ok(startup.every(record => record.level === 30));
-    const errors = allRecords.filter(record => record.level === 50);
+    assert.ok(startup.every(record => record.includes('INFO:')));
+    const errors = allRecords.filter(record => record.includes('ERROR:'));
     assert.ok(errors.length > 0);
-    assert.ok(errors.every(record => typeof record.err.message === 'string' && typeof record.err.stack === 'string'));
-    const records = allRecords.filter(record => record.event === 'gateway_connection');
+    assert.ok(errors.some(record => record.includes('ECONNREFUSED')));
+    const records = allRecords.filter(record => record.includes(' | IP='));
     for (const protocol of protocols) {
       for (const transport of ['ws', 'grpc']) {
-        const record = records.find(value => value.protocol === protocol && value.transport === transport);
+        const prefix = `INFO: ${transport.toUpperCase()} ${protocol} | IP=`;
+        const record = records.find(value => value.includes(prefix));
         assert.ok(record, `Missing ${protocol} ${transport} connection log`);
-        assert.equal(record.event, 'gateway_connection');
-        assert.equal(record.level, 30);
-        assert.equal(record.ip, trustCloudflareHeaders
-          ? (transport === 'ws' ? '203.0.113.42' : '2001:db8::42') : '127.0.0.1');
-        assert.equal(record.country, trustCloudflareHeaders ? (transport === 'ws' ? 'US' : 'DE') : null);
-        assert.equal(record.ipSource, trustCloudflareHeaders ? 'cloudflare' : 'socket');
+        const ip = trustCloudflareHeaders
+          ? (transport === 'ws' ? '203.0.113.42' : '2001:db8::42') : '127.0.0.1';
+        const country = trustCloudflareHeaders ? (transport === 'ws' ? 'US' : 'DE') : 'unknown';
+        assert.ok(record.endsWith(`${prefix}${ip} | country=${country}`));
       }
     }
-    const direct = records.find(value => value.transport === 'grpc' && value.ipSource === 'socket');
+    const direct = records.find(value => value.includes('GRPC ') && value.endsWith('IP=127.0.0.1 | country=unknown'));
     assert.ok(direct, 'Missing socket fallback for requests without Cloudflare headers');
-    assert.equal(direct.ip, '127.0.0.1');
-    assert.equal(direct.country, null);
-    assert.equal(records.filter(value => value.transport === 'ws').length, protocols.length);
+    assert.equal(records.filter(value => value.includes('INFO: WS ')).length, protocols.length);
   });
 
   await t.test('invalid Cloudflare metadata is ignored without interrupting traffic', async () => {
@@ -348,15 +345,13 @@ async function testGateway(t, trustCloudflareHeaders) {
     }
     await run(process.execPath, [healthcheckPath], { env });
     const metadataLogs = logs.slice(offset);
-    const allRecords = metadataLogs.trim().split(/\r?\n/).map(line => JSON.parse(line));
-    const records = allRecords.filter(record => record.event === 'gateway_connection');
+    const allRecords = metadataLogs.trim().split(/\r?\n/);
+    const records = allRecords.filter(record => record.includes(' | IP='));
     assert.equal(records.length, 2);
-    assert.equal(records[0].ip, '127.0.0.1');
-    assert.equal(records[0].country, null);
-    assert.equal(records[1].ip, trustCloudflareHeaders ? '203.0.113.42' : '127.0.0.1');
-    assert.equal(records[1].country, null);
+    assert.ok(records[0].endsWith('IP=127.0.0.1 | country=unknown'));
+    assert.ok(records[1].endsWith(`IP=${trustCloudflareHeaders ? '203.0.113.42' : '127.0.0.1'} | country=unknown`));
     if (trustCloudflareHeaders) {
-      assert.equal(allRecords.filter(record => record.level === 40).length, 2);
+      assert.equal(allRecords.filter(record => record.includes('WARN:')).length, 2);
       assert.match(metadataLogs, /invalid CF-Connecting-IP ignored/);
       assert.match(metadataLogs, /invalid CF-IPCountry ignored/);
     } else {
