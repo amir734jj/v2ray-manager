@@ -58,30 +58,6 @@ function clientMetadata(request) {
   };
 }
 
-function logConnection(transport, protocol, request, metadata) {
-  const openedAt = performance.now();
-  const client = {
-    ...metadata,
-    connectionId: randomUUID(),
-    transport,
-    protocol,
-    connectedAt: new Date().toISOString(),
-  };
-  logger.info({
-    ...client,
-    method: request.method,
-    path: new URL(request.url, 'http://localhost').pathname,
-    remoteAddress: request.socket.remoteAddress,
-  }, 'Gateway proxy request');
-  request.socket.once('close', () => {
-    logger.info({
-      ...client,
-      durationMs: Math.round(performance.now() - openedAt),
-    }, 'Gateway connection closed');
-  });
-  return client;
-}
-
 const protocols = {
   '/vless': process.env.V2RAY_VLESS_PORT ?? '53217',
   '/vmess': process.env.V2RAY_VMESS_PORT ?? '53218',
@@ -109,7 +85,6 @@ const wsConnections = new WeakMap();
 proxy.on('error', (error, request, response) => {
   const connection = wsConnections.get(request);
   if (connection?.blocked) {
-    logger.info({ ...connection.client, err: error }, 'Gateway proxy ended after IP block');
     return;
   }
   connection?.fail();
@@ -188,8 +163,14 @@ server.on('upgrade', (request, socket, head) => {
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 8\r\n\r\nBlocked\n');
     return;
   }
-  const client = logConnection('ws', path.slice(1), request, metadata);
-  const connection = { client, fail: trackConnection('ws', path.slice(1), socket, client), blocked: false };
+  const client = {
+    ...metadata,
+    connectionId: randomUUID(),
+    transport: 'ws',
+    protocol: path.slice(1),
+    connectedAt: new Date().toISOString(),
+  };
+  const connection = { client, fail: trackConnection('ws', client.protocol, socket, client), blocked: false };
   trackProxyTraffic(socket, head.length);
   sockets.set(socket, connection);
   wsConnections.set(request, connection);
