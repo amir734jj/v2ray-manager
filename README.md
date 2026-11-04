@@ -10,9 +10,10 @@ balancer sends new connections through the reachable transport with the lowest
 measured delay. WebSocket is the fallback until measurements are available.
 
 ```text
-                         +-> Node gateway :53217 -> WS inbounds 53217-53220
-Client -> Cloudflare ----+
-                         +-> Coolify UI h2c routes -> gRPC inbounds 53317-53320
+                                   +-> gateway :53217 (HTTP/1.1 + WS)
+Client -> Cloudflare -> Coolify ----+       -> v2ray WS ports 53217-53220
+                                   +-> gateway :53317 (HTTP/2 h2c)
+                                           -> v2ray gRPC ports 53317-53320
 ```
 
 TLS terminates at Cloudflare and Coolify. V2Ray receives unencrypted traffic
@@ -22,8 +23,9 @@ only across the private Docker network.
 
 ```text
 gateway/
-  Dockerfile          Node.js WebSocket gateway image
-  server.mjs          Health endpoint and WebSocket routing
+  Dockerfile          Node.js WebSocket and gRPC gateway image
+  server.mjs          Health endpoints, WebSocket and HTTP/2 gRPC routing
+  healthcheck.mjs     Checks both gateway listeners
 generator/
   Dockerfile          One-shot Coolify init image
   init.mjs            Config, profile, link, QR, and FTP generation
@@ -34,6 +36,7 @@ v2ray/
   templates/          Server and client configuration templates
 tests/
   connections.test.mjs
+  gateway.test.mjs
   runtime.test.mjs
 docker-compose.yaml
 ```
@@ -55,21 +58,34 @@ docker-compose.yaml
    V2RAY_GRPC_HOST=grpc.hesamian.com
    ```
 
-2. Attach `https://ws.hesamian.com` to the **gateway** service on internal
-   port **53217**. Do not attach this domain to `v2ray`.
-3. Do not add a Coolify domain to `init`.
-4. In the Coolify UI, add these four routes to the **v2ray** service. Configure
-   each upstream as cleartext HTTP/2 (`h2c`), while the public URL remains
-   HTTPS:
+2. Configure just two domain routes, both targeting **gateway**:
 
-   | Public route | Internal port |
-   |--------------|---------------|
-   | `https://grpc.hesamian.com/vless-grpc` | 53317 |
-   | `https://grpc.hesamian.com/vmess-grpc` | 53318 |
-   | `https://grpc.hesamian.com/trojan-grpc` | 53319 |
-   | `https://grpc.hesamian.com/shadowsocks-grpc` | 53320 |
+   | Public domain | Internal gateway port | Upstream protocol |
+   |---------------|-----------------------|-------------------|
+   | `https://ws.hesamian.com` | 53217 | HTTP (WebSocket upgrades) |
+   | `https://grpc.hesamian.com` | 53317 | HTTP/2 cleartext (`h2c`) |
 
-   Coolify must preserve the complete gRPC path below each prefix.
+   Public clients use HTTPS port **443** for both domains. The listed ports
+   are private container ports, not ports to append to public client URLs.
+3. Do not attach domains to `init` or `v2ray`. Remove any old gRPC domain/path
+   routes targeting `v2ray` directly.
+4. Preserve the full gRPC request path. The gateway routes `/vless-grpc/`,
+   `/vmess-grpc/`, `/trojan-grpc/`, and `/shadowsocks-grpc/` to the correct
+   V2Ray listener, including all RPC method suffixes.
+
+   The gRPC route still requires `h2c` between Coolify and the gateway.
+   If the domain UI has no upstream-protocol option, set the corresponding
+   Traefik service's `loadbalancer.server.scheme=h2c` in its routing labels.
+   For example, for a service named `gateway-grpc`:
+
+   ```text
+   traefik.http.services.gateway-grpc.loadbalancer.server.port=53317
+   traefik.http.services.gateway-grpc.loadbalancer.server.scheme=h2c
+   ```
+
+   Use the actual service name referenced by the gRPC router, not necessarily
+   the example name. Adding an HTTPS domain alone does not configure the
+   HTTP/2 upstream. Do not change the WebSocket service's scheme to `h2c`.
 5. Create proxied (orange-cloud) Cloudflare DNS records for both hostnames,
    enable **gRPC** and WebSockets under Network, and use **Full (strict)**
    SSL/TLS. The origin must be reachable on HTTPS port 443.
@@ -151,8 +167,9 @@ restart alone does not apply locally rotated credentials.
 
 ## Health checks and troubleshooting
 
-The gateway health check requests `/healthz`. V2Ray checks all eight listening
-sockets without opening incomplete protocol connections.
+The gateway health check requests `/healthz` on both its HTTP/1.1 and HTTP/2
+listeners. V2Ray checks all eight listening sockets without opening incomplete
+protocol connections.
 
 Check the public WebSocket gateway:
 
@@ -160,8 +177,9 @@ Check the public WebSocket gateway:
 curl --fail https://ws.hesamian.com/healthz
 ```
 
-Expected response: `ok`. Cloudflare's gRPC hostname does not expose a normal
-HTTP health page; validate it using a generated gRPC profile.
+Expected response: `ok`. The gRPC gateway also serves `/healthz` over HTTP/2,
+but a health response does not prove a complete proxy tunnel works; validate
+with a generated gRPC profile.
 
 ## Tests
 
@@ -169,8 +187,12 @@ HTTP health page; validate it using a generated gRPC profile.
 npm test
 ```
 
+The always-on gateway tests exercise WebSocket upgrades and bidirectional
+HTTP/2 streams for all four protocols, metadata and trailers, cancellation,
+upstream failures, and both health checks.
+
 Optional runtime tests run actual V2Fly when `V2RAY_TEST_BINARY` contains its
 absolute path. Set `SS_PLUGIN_TEST_BINARY` to also test plugin interoperability.
 The runtime suite validates all eight protocol/transport combinations and
-automatic `leastping` selection. Live Cloudflare/Coolify TLS and DNS still
+automatic `leastping` selection through the gateway. Live Cloudflare/Coolify TLS and DNS still
 require post-deployment verification.

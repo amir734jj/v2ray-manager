@@ -61,9 +61,11 @@ test('real V2Ray traffic through all WS and gRPC outbounds', {
       JSON.parse(await readFile(join(projectDir, 'v2ray', 'templates', 'server.template.json'), 'utf8')),
     );
     const gatewayPort = await freePort();
+    const grpcGatewayPort = await freePort();
     const gatewayEnv = {
       ...process.env,
       GATEWAY_PORT: String(gatewayPort),
+      GATEWAY_GRPC_PORT: String(grpcGatewayPort),
       V2RAY_UPSTREAM_HOST: '127.0.0.1',
     };
     for (const inbound of server.inbounds) {
@@ -72,6 +74,8 @@ test('real V2Ray traffic through all WS and gRPC outbounds', {
       inbound.port = port;
       if (inbound.streamSettings.network === 'ws') {
         gatewayEnv[`V2RAY_${inbound.protocol.toUpperCase()}_PORT`] = String(port);
+      } else {
+        gatewayEnv[`V2RAY_${inbound.protocol.toUpperCase()}_GRPC_PORT`] = String(port);
       }
     }
     // Test ports and direct localhost destinations without depending on geoip assets.
@@ -84,6 +88,7 @@ test('real V2Ray traffic through all WS and gRPC outbounds', {
     await waitForPort(server.inbounds[0].port, core, () => logs);
     gateway = start(process.execPath, [join(projectDir, 'gateway', 'server.mjs')], gatewayEnv);
     await waitForPort(gatewayPort, gateway, () => logs);
+    await waitForPort(grpcGatewayPort, gateway, () => logs);
     const health = await fetch(`http://127.0.0.1:${gatewayPort}/healthz`);
     assert.equal(await health.text(), 'ok\n');
     assert.equal((await fetch(`http://127.0.0.1:${gatewayPort}/unknown`)).status, 404);
@@ -100,13 +105,12 @@ test('real V2Ray traffic through all WS and gRPC outbounds', {
         delete transportClient.observatory;
         const socksPort = await freePort();
         transportClient.inbounds[0].port = socksPort;
+        // The local HTTP origin uses TCP only; avoid unrelated UDP port reservations.
+        transportClient.inbounds[0].settings.udp = false;
         const outbound = transportClient.outbounds.find(item => item.tag === `${protocol}-${network}`);
         const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
-        const serverInbound = server.inbounds.find(
-          item => item.protocol === protocol && item.streamSettings.network === network,
-        );
         target.address = '127.0.0.1';
-        target.port = network === 'ws' ? gatewayPort : serverInbound.port;
+        target.port = network === 'ws' ? gatewayPort : grpcGatewayPort;
         outbound.streamSettings.security = 'none';
         delete outbound.streamSettings.tlsSettings;
         transportClient.outbounds = [outbound];
@@ -125,16 +129,14 @@ test('real V2Ray traffic through all WS and gRPC outbounds', {
       const automaticClient = structuredClone(client);
       const automaticSocksPort = await freePort();
       automaticClient.inbounds[0].port = automaticSocksPort;
+      automaticClient.inbounds[0].settings.udp = false;
       automaticClient.observatory.probeURL = `http://127.0.0.1:${origin.address().port}/`;
       automaticClient.observatory.probeInterval = '1s';
       for (const outbound of automaticClient.outbounds.filter(item => item.protocol === protocol)) {
         const network = outbound.streamSettings.network;
         const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
-        const serverInbound = server.inbounds.find(
-          item => item.protocol === protocol && item.streamSettings.network === network,
-        );
         target.address = '127.0.0.1';
-        target.port = network === 'ws' ? gatewayPort : serverInbound.port;
+        target.port = network === 'ws' ? gatewayPort : grpcGatewayPort;
         outbound.streamSettings.security = 'none';
         delete outbound.streamSettings.tlsSettings;
       }

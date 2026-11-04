@@ -25,8 +25,9 @@ services:
         condition: service_healthy
     expose:
       - "53217"
+      - "53317"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:53217/healthz').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      test: ["CMD", "node", "/app/healthcheck.mjs"]
       interval: 30s
       timeout: 5s
       retries: 3
