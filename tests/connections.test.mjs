@@ -78,6 +78,9 @@ test('all configured clients use paired WS/gRPC outbounds with automatic least-p
     const direct = template.outbounds.filter(o => !protocols.includes(o.protocol));
     configureClient(template, server, wsHost, grpcHost);
     assertClient(template, server);
+    const socksInbound = template.inbounds.find(inbound => inbound.protocol === 'socks');
+    assert.equal(socksInbound.listen, '127.0.0.1');
+    assert.equal(socksInbound.port, 10808);
     if (name === 'shadowsocks') assert.equal(template.inbounds[0].settings.udp, false);
     assert.deepEqual(template.outbounds.filter(o => !protocols.includes(o.protocol)), direct);
   }

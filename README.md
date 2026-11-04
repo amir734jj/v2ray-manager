@@ -220,10 +220,12 @@ sensitive data and configure appropriate access and retention in Coolify.
 
 ### v2rayNG custom-profile troubleshooting
 
-Generated profiles listen on local SOCKS port `1080`. When importing a full
+Generated profiles listen on local SOCKS port `10808`. When importing a full
 `client.json` into v2rayNG, its VPN tunnel must use that same local port.
-If v2rayNG uses `10808`, either change its local SOCKS port to `1080`, or
-change the profile's SOCKS inbound port to `10808` and re-import it.
+Older exports used `1080`; change their SOCKS inbound port to `10808` and
+re-import them, or regenerate and re-import the updated profiles.
+If you customized v2rayNG's local proxy port, match the profile to that port.
+After importing, select the updated profile and stop/start the VPN.
 Do not change the remote outbound port `443`.
 
 Repeated `socks5 client connect` / `socks5 session connect` errors in the
