@@ -172,7 +172,9 @@ async function testGateway(t, trustCloudflareHeaders) {
     const html = await response.text();
     assert.match(html, /Gateway status/);
     assert.match(html, /http-equiv="refresh" content="5"/);
-    assert.doesNotMatch(html, /<script|<form|https?:\/\//);
+    assert.doesNotMatch(html, /<script|<form|(?:src|href)="https?:\/\//);
+    assert.match(html, /class="table table-striped align-middle"/);
+    assert.match(html, /data-bs-theme="dark"/);
     const head = await fetch(`http://127.0.0.1:${wsPort}/status`, { method: 'HEAD' });
     assert.equal(head.status, 200);
     assert.equal(await head.text(), '');

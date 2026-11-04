@@ -194,8 +194,9 @@ connection attempts, and proxy errors for each protocol and transport.
 The page refreshes every five seconds; `/status.json` provides the same
 aggregate data as JSON. Both endpoints also work on the HTTP/2 listener.
 Only GET and HEAD are accepted; there are no controls or reset actions.
-Express serves the HTTP status routes and renders a Pug template with local
-CSS and no browser-side JavaScript or CDN assets. The gRPC listener keeps
+Express serves the HTTP status routes and renders a Pug template styled only
+with locally bundled Bootstrap CSS, with no custom CSS, browser-side JavaScript
+or CDN assets. The gRPC listener keeps
 native HTTP/2 handling.
 
 Counters are in memory, reset on gateway restart, and represent one process

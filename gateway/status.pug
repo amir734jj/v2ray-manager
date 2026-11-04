@@ -1,44 +1,43 @@
 doctype html
-html(lang="en")
+html(lang="en" data-bs-theme="dark")
   head
     meta(charset="utf-8")
     meta(name="viewport" content="width=device-width, initial-scale=1")
     meta(http-equiv="refresh" content="5")
     title Gateway status
-    style
-      include status.css
+    style!= bootstrapCss
   body
-    h1 Gateway status
-    p Read-only live connection counters &middot; refreshes every 5 seconds
-    section.cards(aria-label="Connection totals")
-      .card
-        | Active tunnels
-        strong.live= totals.active
-      .card
-        | Total attempts
-        strong= totals.total
-      .card
-        | Proxy errors
-        strong= totals.errors
-    .table-wrap
-      table
-        thead
-          tr
-            each heading in ['Protocol', 'Transport', 'Active', 'Total', 'Errors']
-              th= heading
-        tbody
-          each row in connections
+    main.container.py-5
+      h1 Gateway status
+      p.text-body-secondary Read-only live connection counters &middot; refreshes every 5 seconds
+      section.row.g-3.my-4(aria-label="Connection totals")
+        each card in [{ label: 'Active tunnels', value: totals.active, color: 'text-success' }, { label: 'Total attempts', value: totals.total, color: '' }, { label: 'Proxy errors', value: totals.errors, color: 'text-danger' }]
+          .col-12.col-sm-4
+            .card.h-100
+              .card-body
+                p.card-title.text-body-secondary= card.label
+                strong.fs-2(class=card.color)= card.value
+      .table-responsive
+        table.table.table-striped.align-middle
+          thead
             tr
-              td= row.protocol
-              td= row.transport.toUpperCase()
-              td= row.active
-              td= row.total
-              td= row.errors
-    footer
-      p
-        | Started #{startedAt} &middot; Uptime #{uptimeSeconds}s &middot; 
-        a(href="/status.json") JSON snapshot
-      p.
-        Counts reset on restart and belong to this gateway process only. Attempts include failed connections.
-        Active means an open routed socket or stream, not an authenticated user or successful browsing.
-        Health checks and status visits are excluded. No client identities or destinations are displayed.
+              th(scope="col") Protocol
+              th(scope="col") Transport
+              each heading in ['Active', 'Total', 'Errors']
+                th.text-end(scope="col")= heading
+          tbody
+            each row in connections
+              tr
+                th(scope="row")= row.protocol
+                td= row.transport.toUpperCase()
+                td.text-end= row.active
+                td.text-end= row.total
+                td.text-end= row.errors
+      footer.mt-4.small.text-body-secondary
+        p
+          | Started #{startedAt} &middot; Uptime #{uptimeSeconds}s &middot;&nbsp;
+          a(href="/status.json") JSON snapshot
+        p.
+          Counts reset on restart and belong to this gateway process only. Attempts include failed connections.
+          Active means an open routed socket or stream, not an authenticated user or successful browsing.
+          Health checks and status visits are excluded. No client identities or destinations are displayed.

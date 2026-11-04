@@ -1,7 +1,11 @@
 import express from 'express';
 import { renderFile } from 'pug';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 
+const require = createRequire(import.meta.url);
+const bootstrapCss = readFileSync(require.resolve('bootstrap/dist/css/bootstrap.min.css'), 'utf8');
 const views = fileURLToPath(new URL('.', import.meta.url));
 const template = fileURLToPath(new URL('./status.pug', import.meta.url));
 const statusHeaders = {
@@ -54,7 +58,7 @@ export function statusResponse(path, method) {
       ...statusHeaders,
       'content-type': path === '/status.json' ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8',
     },
-    body: method === 'HEAD' ? '' : path === '/status.json' ? JSON.stringify(status) : renderFile(template, status),
+    body: method === 'HEAD' ? '' : path === '/status.json' ? JSON.stringify(status) : renderFile(template, { ...status, bootstrapCss }),
   };
 }
 
@@ -77,7 +81,7 @@ export function createStatusApp() {
       response.json(snapshot());
       return;
     }
-    response.render('status', snapshot());
+    response.render('status', { ...snapshot(), bootstrapCss });
   });
   return app;
 }
