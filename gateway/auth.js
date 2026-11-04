@@ -5,8 +5,8 @@ import { Strategy as CustomStrategy } from 'passport-custom';
 import { Strategy as LocalStrategy } from 'passport-local';
 import {
   authenticateSession, createSession, registerAccount, revokeSession, SESSION_SECONDS, verifyAccount,
-} from './accounts.mjs';
-import { gatewayEvents } from './events.mjs';
+} from './accounts.js';
+import { gatewayEvents } from './events.js';
 
 export function isSameOrigin(headers) {
   let origin;

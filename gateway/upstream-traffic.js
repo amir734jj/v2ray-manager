@@ -1,4 +1,4 @@
-import { createTrafficMeter } from './traffic.mjs';
+import { createTrafficMeter } from './traffic.js';
 
 export function logUpstreamTraffic(proxy, logger) {
   const traffic = createTrafficMeter({ upstream: true });

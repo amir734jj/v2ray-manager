@@ -1,11 +1,11 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { createTrafficMeter } from './traffic.mjs';
-import { createResourceMeter } from './resources.mjs';
-import { createAuth, sameOrigin } from './auth.mjs';
-import { activateAccount, listAccounts } from './accounts.mjs';
-import { gatewayEvents } from './events.mjs';
+import { createTrafficMeter } from './traffic.js';
+import { createResourceMeter } from './resources.js';
+import { createAuth, sameOrigin } from './auth.js';
+import { activateAccount, listAccounts } from './accounts.js';
+import { gatewayEvents } from './events.js';
 
 const publicDirectory = fileURLToPath(new URL('./public', import.meta.url));
 const statusHeaders = {

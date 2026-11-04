@@ -1,6 +1,6 @@
 import { col, DataTypes, fn, Op, Sequelize, Transaction, where } from 'sequelize';
-import { normalizeIp } from './blocklist.mjs';
-import { initializeAccounts } from './accounts.mjs';
+import { normalizeIp } from './blocklist.js';
+import { initializeAccounts } from './accounts.js';
 
 export const MAX_BLOCKED_IPS = 1000;
 

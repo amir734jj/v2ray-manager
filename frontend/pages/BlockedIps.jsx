@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
-import { api, errorMessage } from '../api.mjs';
+import { api, errorMessage } from '../api.js';
 import Table from '../components/Table.jsx';
-import { useResource } from '../useResource.mjs';
+import { useResource } from '../useResource.js';
 
 export default function BlockedIps({ user }) {
   const { data: status, error: refreshError, loading, refresh } = useResource('/api/status.json');

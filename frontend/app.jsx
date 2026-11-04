@@ -4,14 +4,14 @@ import Router, { route } from 'preact-router';
 import { Link } from 'preact-router/match';
 import { io } from 'socket.io-client';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { api, errorMessage } from './api.mjs';
+import { api, errorMessage } from './api.js';
 import Navbar from './components/Navbar.jsx';
 import BlockedIps from './pages/BlockedIps.jsx';
 import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import Status from './pages/Status.jsx';
 import Users from './pages/Users.jsx';
-import { RealtimeContext } from './realtime.mjs';
+import { RealtimeContext } from './realtime.js';
 
 function Protected({ user, children }) {
   useEffect(() => {

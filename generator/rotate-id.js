@@ -15,7 +15,7 @@ import { readFile, writeFile, access, mkdir } from 'fs/promises';
 import { join, dirname }           from 'path';
 import { fileURLToPath }           from 'url';
 import QRCode                      from 'qrcode';
-import { configureClient, configureServerTransports, createConnectionUrls, validateHost } from './connections.mjs';
+import { configureClient, configureServerTransports, createConnectionUrls, validateHost } from './connections.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const projectDir = dirname(__dir);

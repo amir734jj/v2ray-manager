@@ -66,7 +66,7 @@ Install Node.js LTS, npm, Bun, and PostgreSQL:
 npm ci
 npm run build
 # Set DATABASE_URL and GATEWAY_SECURE_COOKIES=false for local HTTP.
-bun gateway/server.mjs
+bun gateway/server.js
 ```
 
 For frontend development, run `npm run dev` in another terminal. Keep secure

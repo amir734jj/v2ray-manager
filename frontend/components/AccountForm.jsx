@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { Link } from 'preact-router/match';
-import { api, errorMessage } from '../api.mjs';
+import { api, errorMessage } from '../api.js';
 
 export default function AccountForm({ registering, onSuccess, notice }) {
   const [busy, setBusy] = useState(false);

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSy
 import { execSync } from 'child_process';
 import { join } from 'path';
 import QRCode from 'qrcode';
-import { configureClient, configureServerTransports, createConnectionUrls, protocols, validateHost } from './connections.mjs';
+import { configureClient, configureServerTransports, createConnectionUrls, protocols, validateHost } from './connections.js';
 
 const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
 

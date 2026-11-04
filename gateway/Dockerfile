@@ -24,4 +24,4 @@ COPY --from=gateway-dependencies /app/node_modules ./node_modules
 COPY --from=gateway-dependencies /app/gateway ./gateway
 COPY --from=frontend-build /app/gateway/public ./gateway/public
 USER bun
-CMD ["bun", "gateway/server.mjs"]
+CMD ["bun", "gateway/server.js"]

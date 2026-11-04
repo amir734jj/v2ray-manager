@@ -120,7 +120,7 @@ For a non-Docker setup, install Node/npm for the build and Bun for the gateway:
 npm ci
 npm run build
 # Set DATABASE_URL (and GATEWAY_SECURE_COOKIES=false only for local HTTP):
-bun gateway/server.mjs
+bun gateway/server.js
 ```
 
 Rebuild after frontend changes. Source is in [frontend](../frontend); generated
@@ -131,7 +131,7 @@ For frontend development, start the gateway with `DATABASE_URL` and
 Open the Vite URL it prints (normally `http://127.0.0.1:5173`). Vite proxies
 management API and Socket.IO requests to the local gateway on port 53217,
 preserving the browser's host for same-origin checks. If the gateway port changes, update the
-proxy target in [frontend/vite.config.mjs](../frontend/vite.config.mjs). Both
+proxy target in [frontend/vite.config.js](../frontend/vite.config.js). Both
 servers must be running; the gateway still requires PostgreSQL. Do not expose
 the HTTP development server or disable secure cookies in production.
 
@@ -295,7 +295,7 @@ and everyone using the shared UUID remains indistinguishable by credentials.
 The list is limited to **1,000 IPs**, with no automatic eviction. Sequelize
 uses PostgreSQL to store it in `gateway_ip_blocklist` via `DATABASE_URL`; the database role
 needs permission to create, alter, and update that table. There is no local-file fallback.
-Database initialization and blocklist persistence are in [gateway/database.mjs](../gateway/database.mjs).
+Database initialization and blocklist persistence are in [gateway/database.js](../gateway/database.js).
 The table and constraint are initialized at startup; there are no versioned migrations.
 The gateway loads a bounded cache at startup and updates it after committed
 changes through this page. Use a single gateway instance; direct SQL changes

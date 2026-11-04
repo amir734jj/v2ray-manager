@@ -2,13 +2,13 @@ import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
-import { createGatewayLogger } from './logger.mjs';
-import { logUpstreamTraffic } from './upstream-traffic.mjs';
-import { trackConnection, trackProxyTraffic, createStatusApp, startResourceRecording, stopResourceRecording, MAX_USER_AGENT_LENGTH } from './status.mjs';
-import { normalizeIp } from './blocklist.mjs';
-import { createDatabase } from './database.mjs';
-import { attachRealtime } from './realtime.mjs';
-import { createResourceHistory } from './resource-history.mjs';
+import { createGatewayLogger } from './logger.js';
+import { logUpstreamTraffic } from './upstream-traffic.js';
+import { trackConnection, trackProxyTraffic, createStatusApp, startResourceRecording, stopResourceRecording, MAX_USER_AGENT_LENGTH } from './status.js';
+import { normalizeIp } from './blocklist.js';
+import { createDatabase } from './database.js';
+import { attachRealtime } from './realtime.js';
+import { createResourceHistory } from './resource-history.js';
 
 const logger = createGatewayLogger();
 

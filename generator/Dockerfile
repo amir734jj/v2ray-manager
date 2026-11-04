@@ -6,6 +6,6 @@ COPY frontend/package.json /app/frontend/
 COPY gateway/package.json /app/gateway/
 COPY generator/package.json /app/generator/
 RUN npm ci --workspace generator --omit=dev
-COPY generator/init.mjs generator/connections.mjs /app/generator/
+COPY generator/init.js generator/connections.js /app/generator/
 COPY v2ray/templates/ /app/templates/
-CMD ["node", "/app/generator/init.mjs"]
+CMD ["node", "/app/generator/init.js"]

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import prettyBytes from 'pretty-bytes';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
-import { api, errorMessage } from '../api.mjs';
+import { api, errorMessage } from '../api.js';
 
 const ranges = [
   ['5m', 'Last 5 minutes'],

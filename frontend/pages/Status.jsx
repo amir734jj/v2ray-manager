@@ -2,10 +2,10 @@ import { Fragment } from 'preact';
 import { useState } from 'preact/hooks';
 import { Link } from 'preact-router/match';
 import prettyBytes from 'pretty-bytes';
-import { api, errorMessage } from '../api.mjs';
+import { api, errorMessage } from '../api.js';
 import Table from '../components/Table.jsx';
 import ResourceCharts from '../components/ResourceCharts.jsx';
-import { useResource } from '../useResource.mjs';
+import { useResource } from '../useResource.js';
 
 function Rate({ value }) {
   if (value === null) return 'Collecting...';

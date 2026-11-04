@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useState } from 'preact/hooks';
-import { RealtimeContext } from './realtime.mjs';
+import { RealtimeContext } from './realtime.js';
 
 const resources = { '/api/status.json': 'status', '/api/users': 'users' };
 

@@ -1,8 +1,8 @@
 import { Server } from 'socket.io';
-import { authenticateSession, listAccounts } from './accounts.mjs';
-import { getSessionToken, isSameOrigin } from './auth.mjs';
-import { gatewayEvents } from './events.mjs';
-import { statusSnapshot } from './status.mjs';
+import { authenticateSession, listAccounts } from './accounts.js';
+import { getSessionToken, isSameOrigin } from './auth.js';
+import { gatewayEvents } from './events.js';
+import { statusSnapshot } from './status.js';
 
 export function attachRealtime(server, { accounts, blocklist, secureCookies, logger }) {
   const io = new Server(server, {

@@ -37,7 +37,7 @@ services:
     expose:
       - "53217"
     healthcheck:
-      test: ["CMD", "bun", "/app/gateway/healthcheck.mjs"]
+      test: ["CMD", "bun", "/app/gateway/healthcheck.js"]
       interval: 30s
       timeout: 5s
       retries: 3
