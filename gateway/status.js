@@ -92,7 +92,6 @@ function connectionTotals() {
 export function trackConnection(transport, protocol, connection, {
   country, ip, userAgent, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
 } = {}) {
-  const clientTraffic = traffic.track(connection, bufferedBytes);
   const counter = counters.find(item => item.transport === transport && item.protocol === protocol);
   const code = typeof country === 'string' && /^(?:[A-Z]{2}|T1)$/.test(country) && country !== 'XX'
     ? country : 'unknown';
@@ -115,6 +114,7 @@ export function trackConnection(transport, protocol, connection, {
       ? userAgent.slice(0, MAX_USER_AGENT_LENGTH) : 'Unknown',
     connectedAt,
   } : null;
+  const clientTraffic = traffic.track(connection, bufferedBytes, Boolean(client));
   if (client) clients.set(client, clientTraffic);
   for (const row of [counter, countryCounter]) {
     row.active++;

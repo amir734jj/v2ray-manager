@@ -27,14 +27,20 @@ export function createTrafficMeter({ now = () => performance.now(), upstream = f
     return { uploadBytes, downloadBytes };
   }
 
-  function track(socket, bufferedBytes = 0) {
+  function track(socket, bufferedBytes = 0, detailed = false) {
     const baseline = {
       upload: socket[uploadCounter] - (upstream ? 0 : bufferedBytes),
       download: socket[downloadCounter] - (upstream ? bufferedBytes : 0),
-      sampledUploadBytes: 0,
-      sampledDownloadBytes: 0,
-      rate: { intervalSeconds: null, uploadBytesPerSecond: null, downloadBytesPerSecond: null },
     };
+    if (detailed) {
+      baseline.details = {
+        sampledUploadBytes: 0,
+        sampledDownloadBytes: 0,
+        intervalSeconds: null,
+        uploadBytesPerSecond: null,
+        downloadBytesPerSecond: null,
+      };
+    }
     sockets.set(socket, baseline);
     socket.once('close', () => {
       const current = socketTotals(socket, baseline);
@@ -42,7 +48,16 @@ export function createTrafficMeter({ now = () => performance.now(), upstream = f
       closedDownloadBytes += current.downloadBytes;
       sockets.delete(socket);
     });
-    return { snapshot: () => ({ ...socketTotals(socket, baseline), ...baseline.rate }) };
+    if (detailed) {
+      return {
+        snapshot: () => ({
+          ...socketTotals(socket, baseline),
+          intervalSeconds: baseline.details.intervalSeconds,
+          uploadBytesPerSecond: baseline.details.uploadBytesPerSecond,
+          downloadBytesPerSecond: baseline.details.downloadBytesPerSecond,
+        }),
+      };
+    }
   }
 
   function sample() {
@@ -56,14 +71,14 @@ export function createTrafficMeter({ now = () => performance.now(), upstream = f
       downloadBytesPerSecond: (downloadBytes - previousDownloadBytes) / intervalSeconds,
     };
     for (const [socket, baseline] of sockets) {
+      if (!baseline.details) continue;
       const current = socketTotals(socket, baseline);
-      baseline.rate = {
-        intervalSeconds,
-        uploadBytesPerSecond: (current.uploadBytes - baseline.sampledUploadBytes) / intervalSeconds,
-        downloadBytesPerSecond: (current.downloadBytes - baseline.sampledDownloadBytes) / intervalSeconds,
-      };
-      baseline.sampledUploadBytes = current.uploadBytes;
-      baseline.sampledDownloadBytes = current.downloadBytes;
+      const details = baseline.details;
+      details.intervalSeconds = intervalSeconds;
+      details.uploadBytesPerSecond = (current.uploadBytes - details.sampledUploadBytes) / intervalSeconds;
+      details.downloadBytesPerSecond = (current.downloadBytes - details.sampledDownloadBytes) / intervalSeconds;
+      details.sampledUploadBytes = current.uploadBytes;
+      details.sampledDownloadBytes = current.downloadBytes;
     }
     sampledAt = currentTime;
     previousUploadBytes = uploadBytes;

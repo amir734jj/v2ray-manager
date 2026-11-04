@@ -262,6 +262,11 @@ apply locally generated files.
   Individual client traffic also includes cumulative `uploadBytes`,
   `downloadBytes` and the sampled `intervalSeconds`. This measures actual
   traffic, not the client's maximum available bandwidth.
+  Detailed speed state is allocated only for the existing maximum of 1,000
+  displayed connections and updated in place by the shared sampler. There are
+  no per-client timers or speed histories; closing a connection releases its
+  detail state. Omitted connections and upstream sockets keep only the existing
+  aggregate byte-counter baselines.
   The selected group stays expanded across refreshes. `/api/status.json` provides
   both grouped summaries and individual connections. At most **1,000 active
   connection details** are retained, with User-Agent text limited to 256 characters.
