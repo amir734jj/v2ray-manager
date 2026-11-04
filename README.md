@@ -100,9 +100,12 @@ The navigation bar links to **Status**, **Blocked IPs**, and, for administrators
 **Users**. Login and registration have their own pages. Active viewers can open
 the status and blocklist pages, but management actions remain administrator-only.
 
-The gateway Docker build uses Node/npm to install dependencies and build the
-browser assets, then runs the gateway with Bun 1.4.4 on Alpine as the non-root
-`bun` user. The generator still uses Node. The gateway healthcheck also uses Bun.
+The gateway Docker build uses Node LTS/npm (`node:lts-bookworm-slim`) to install dependencies and build the
+browser assets, then runs the gateway with `oven/bun:latest` as the non-root
+`bun` user. Both stages use Debian for native dependency compatibility. Pull
+the base image when rebuilding to pick up newer Bun releases. The generator
+still uses Node. The gateway healthcheck also uses Bun.
+Bun has no `lts` image tag; `latest` tracks its stable releases.
 For a non-Docker setup, install Node/npm for the build and Bun for the gateway:
 
 ```bash
