@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { once, EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { protocols } from '../generator/connections.mjs';
-import { trackConnection, createStatusApp } from '../gateway/status.mjs';
+import { trackConnection, createStatusApp, MAX_CLIENT_DETAILS, MAX_USER_AGENT_LENGTH } from '../gateway/status.mjs';
 
 const gatewayPath = fileURLToPath(new URL('../gateway/server.mjs', import.meta.url));
 const healthcheckPath = fileURLToPath(new URL('../gateway/healthcheck.mjs', import.meta.url));
@@ -112,6 +112,65 @@ test('active client details preserve separate sockets, escape reported clients a
   const empty = await read();
   assert.deepEqual(empty.clients, []);
   assert.deepEqual(empty.clientGroups, []);
+});
+
+test('connection details stay capped while all sockets contribute to aggregate counters', async t => {
+  const server = createServer(createStatusApp());
+  const port = await listen(server);
+  const sockets = [];
+  t.after(() => {
+    for (const socket of sockets) socket.emit('close');
+    return new Promise(resolve => server.close(resolve));
+  });
+  const read = async () => (await fetch(`http://127.0.0.1:${port}/status.json`)).json();
+  const before = await read();
+  const failures = [];
+  for (let index = 0; index < MAX_CLIENT_DETAILS + 2; index++) {
+    const socket = new EventEmitter();
+    sockets.push(socket);
+    failures.push(trackConnection('ws', 'vless', socket, {
+      ip: '203.0.113.8',
+      country: 'US',
+      userAgent: 'x'.repeat(MAX_USER_AGENT_LENGTH + 500),
+      connectionId: `bounded-connection-${index}`,
+    }));
+  }
+  const capped = await read();
+  assert.equal(capped.clients.length, MAX_CLIENT_DETAILS);
+  assert.deepEqual(capped.clientDetails, { limit: MAX_CLIENT_DETAILS, shown: MAX_CLIENT_DETAILS, omitted: 2 });
+  assert.equal(capped.totals.active, MAX_CLIENT_DETAILS + 2);
+  assert.equal(capped.totals.total, before.totals.total + MAX_CLIENT_DETAILS + 2);
+  assert.equal(capped.connections.find(row => row.protocol === 'vless').active, MAX_CLIENT_DETAILS + 2);
+  assert.equal(capped.countries.find(row => row.code === 'US').active, MAX_CLIENT_DETAILS + 2);
+  assert.equal(capped.clientGroups[0].active, MAX_CLIENT_DETAILS);
+  assert.ok(capped.clients.every(client => client.userAgent.length === MAX_USER_AGENT_LENGTH));
+  assert.ok(capped.clients.every(client => !('headers' in client)));
+  const html = await (await fetch(`http://127.0.0.1:${port}/status`)).text();
+  assert.match(html, /2 sockets are omitted/);
+  assert.match(html, /Displayed sockets/);
+  failures[0]();
+  failures.at(-1)();
+  failures.at(-1)();
+  assert.equal((await read()).totals.errors, before.totals.errors + 2);
+  sockets.at(-1).emit('close');
+  assert.equal((await read()).clientDetails.omitted, 1);
+  sockets[0].emit('close');
+  const released = await read();
+  assert.equal(released.clients.length, MAX_CLIENT_DETAILS - 1);
+  assert.equal(released.clientDetails.omitted, 1);
+  const replacement = new EventEmitter();
+  sockets.push(replacement);
+  trackConnection('ws', 'vless', replacement, { ip: '203.0.113.9', connectionId: 'replacement-connection' });
+  const reused = await read();
+  assert.equal(reused.clients.length, MAX_CLIENT_DETAILS);
+  assert.equal(reused.clientDetails.omitted, 1);
+  assert.ok(reused.clients.some(client => client.connectionId === 'replacement-connection'));
+  for (const socket of sockets) socket.emit('close');
+  const empty = await read();
+  assert.equal(empty.totals.active, 0);
+  assert.deepEqual(empty.clients, []);
+  assert.deepEqual(empty.clientGroups, []);
+  assert.deepEqual(empty.clientDetails, { limit: MAX_CLIENT_DETAILS, shown: 0, omitted: 0 });
 });
 
 async function testGateway(t, trustCloudflareHeaders) {

@@ -20,6 +20,8 @@ const counters = ['vless', 'vmess', 'trojan', 'shadowsocks'].map(protocol => ({
 const countries = new Map();
 const clients = new Set();
 const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
+export const MAX_CLIENT_DETAILS = 1000;
+export const MAX_USER_AGENT_LENGTH = 256;
 
 export function trackConnection(transport, protocol, connection, {
   country, ip, userAgent, connectionId = randomUUID(), connectedAt = new Date().toISOString(),
@@ -35,17 +37,18 @@ export function trackConnection(transport, protocol, connection, {
     });
   }
   const countryCounter = countries.get(code);
-  const client = {
+  const client = clients.size < MAX_CLIENT_DETAILS ? {
     connectionId,
     ip: ip ?? 'unknown',
     protocol,
     transport,
     countryCode: code,
     countryName: countryCounter.name,
-    userAgent: typeof userAgent === 'string' && userAgent.trim() ? userAgent : 'Unknown',
+    userAgent: typeof userAgent === 'string' && userAgent.trim()
+      ? userAgent.slice(0, MAX_USER_AGENT_LENGTH) : 'Unknown',
     connectedAt,
-  };
-  clients.add(client);
+  } : null;
+  if (client) clients.add(client);
   for (const row of [counter, countryCounter]) {
     row.active++;
     row.total++;
@@ -53,7 +56,7 @@ export function trackConnection(transport, protocol, connection, {
   connection.once('close', () => {
     counter.active--;
     countryCounter.active--;
-    clients.delete(client);
+    if (client) clients.delete(client);
   });
   let failed = false;
   return () => {
@@ -66,6 +69,11 @@ export function trackConnection(transport, protocol, connection, {
 }
 
 function snapshot() {
+  const totals = counters.reduce((total, row) => ({
+    active: total.active + row.active,
+    total: total.total + row.total,
+    errors: total.errors + row.errors,
+  }), { active: 0, total: 0, errors: 0 });
   const activeClients = [...clients].map(client => ({
     ...client,
     elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
@@ -83,14 +91,15 @@ function snapshot() {
   return {
     startedAt: startedAt.toISOString(),
     uptimeSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
-    totals: counters.reduce((total, row) => ({
-      active: total.active + row.active,
-      total: total.total + row.total,
-      errors: total.errors + row.errors,
-    }), { active: 0, total: 0, errors: 0 }),
+    totals,
     connections: counters,
     countries: [...countries.values()].sort((a, b) => b.total - a.total || a.code.localeCompare(b.code)),
     clients: activeClients,
+    clientDetails: {
+      limit: MAX_CLIENT_DETAILS,
+      shown: activeClients.length,
+      omitted: totals.active - activeClients.length,
+    },
     clientGroups: [...groups.values()].map(group => ({
       ip: group.ip,
       active: group.active,

@@ -4,7 +4,7 @@ import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
 import pino from 'pino';
 import pretty from 'pino-pretty';
-import { trackConnection, createStatusApp } from './status.mjs';
+import { trackConnection, createStatusApp, MAX_USER_AGENT_LENGTH } from './status.mjs';
 
 const logger = pino({
   base: undefined,
@@ -76,7 +76,7 @@ function logConnection(transport, protocol, request) {
     protocol,
     ip: ip ?? 'unknown',
     country: country && country !== 'XX' ? country : 'unknown',
-    userAgent: headers['user-agent']?.trim() || 'Unknown',
+    userAgent: headers['user-agent']?.trim().slice(0, MAX_USER_AGENT_LENGTH) || 'Unknown',
     connectedAt: new Date().toISOString(),
   };
   logger.info({

@@ -34,6 +34,10 @@ html(lang="en" data-bs-theme="dark")
                 td.text-end= row.total
                 td.text-end= row.errors
       h2.h4.mt-4#active-clients Active clients by IP
+      if clientDetails.omitted > 0
+        .alert.alert-warning(role="status")
+          | Showing details for #{clientDetails.shown} of #{totals.active} open sockets (limit #{clientDetails.limit}).
+          |  #{clientDetails.omitted} sockets are omitted from this table and its IP groups; protocol and country totals still include every socket.
       p.text-body-secondary
         | One group per IP, not per person or device. Expand a group to see its individual sockets.
         |  The selected group stays open across refreshes. User-Agent may be missing or spoofed and does not reliably identify a device model.
@@ -42,7 +46,7 @@ html(lang="en" data-bs-theme="dark")
         table.table.table-striped.align-middle
           thead
             tr
-              each heading in ['IP address', 'Country', 'Protocols', 'Open client sockets', 'Details']
+              each heading in ['IP address', 'Country', 'Protocols', clientDetails.omitted > 0 ? 'Displayed sockets' : 'Open client sockets', 'Details']
                 th(scope="col")= heading
           tbody
             each group in clientGroups

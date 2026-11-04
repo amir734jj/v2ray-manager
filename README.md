@@ -68,7 +68,12 @@ apply locally generated files.
   protocol and country. Clients are grouped by IP; expand a group to see
   connection IDs, countries, reported User-Agents, start times, and elapsed seconds.
   The selected group stays expanded across refreshes. `/status.json` provides
-  both grouped summaries and individual connections.
+  both grouped summaries and individual connections. At most **1,000 active
+  connection details** are retained, with User-Agent text limited to 256 characters.
+  Closed connections are removed immediately; no connection history, request
+  headers, or payloads are stored in status memory. When details are omitted,
+  the page warns that IP groups cover only displayed sockets; protocol/country
+  totals still count all connections.
 - **Health:** `https://ws.hesamian.com/healthz` returns `ok`.
 - **Logs:** expanded request, connection, and error logs appear in Coolify stdout,
   Each WebSocket attempt has an ID shared with the status page, with its IP,
@@ -78,6 +83,7 @@ apply locally generated files.
   headers (Authorization, cookies, X-Api-Key, and Cloudflare access tokens) are
   redacted; query strings and bodies are not logged. Other headers may contain sensitive data,
   so restrict log access and retention.
+  Gateway Docker logs rotate at **10 MB per file**, with **three files** retained.
 
 Counters reset on restart. Open tunnels and healthy listeners do not prove
 authenticated browsing works. An IP may represent multiple users or devices;
