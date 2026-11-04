@@ -106,8 +106,9 @@ export default function Status({ user }) {
         {' '}{status.clientDetails.omitted} sockets are omitted from IP groups; protocol and country totals still include every socket.
       </div>}
       <p class="text-body-secondary">One group per IP, not per person or device. Expand to see sockets. User-Agent may be missing or spoofed and does not reliably identify a device model.</p>
+      <p class="text-body-secondary">Upload/download speeds average the latest five-second sample across displayed open sockets. Upload is client to gateway; download is gateway to client. New connections show Collecting... until sampled.</p>
       <p class="text-body-secondary">Approximate IP location and network data from ipwho.is, cached for 24 hours. VPNs and proxies may show the exit server's location, not the client's.</p>
-      <Table headings={['IP address', 'Location', 'ISP / Network', 'Protocols', status.clientDetails.omitted ? 'Displayed sockets' : 'Open client sockets', 'Details', ...(user.admin && status.blocklistAvailable ? ['Actions'] : [])]}>
+      <Table headings={['IP address', 'Location', 'ISP / Network', 'Protocols', status.clientDetails.omitted ? 'Displayed sockets' : 'Open client sockets', 'Upload', 'Download', 'Details', ...(user.admin && status.blocklistAvailable ? ['Actions'] : [])]}>
         {status.clientGroups.map(group => <Fragment key={group.ip}>
           <tr>
             <th scope="row">{group.ip}</th>
@@ -117,6 +118,8 @@ export default function Status({ user }) {
                 {group.ipDetails.asn !== null && <div class="small text-body-secondary">AS{group.ipDetails.asn}</div>}</>
               : group.ipDetails?.status === 'loading' ? 'Looking up...' : 'Unavailable'}</td>
             <td>{group.protocols.join(', ')}</td><td>{group.active}</td>
+            <td class="text-nowrap"><Rate value={group.traffic.uploadBytesPerSecond} /></td>
+            <td class="text-nowrap"><Rate value={group.traffic.downloadBytesPerSecond} /></td>
             <td><button class="btn btn-sm btn-outline-secondary" aria-expanded={expandedIp === group.ip} onClick={() => {
               const ip = expandedIp === group.ip ? null : group.ip;
               setExpandedIp(ip);
@@ -125,7 +128,7 @@ export default function Status({ user }) {
             {user.admin && status.blocklistAvailable && <td><button class="btn btn-sm btn-outline-danger" disabled={busy}
               onClick={() => block(group.ip)}>Block IP</button></td>}
           </tr>
-          {expandedIp === group.ip && <tr><td colSpan={user.admin && status.blocklistAvailable ? 7 : 6}>
+          {expandedIp === group.ip && <tr><td colSpan={user.admin && status.blocklistAvailable ? 9 : 8}>
             {group.ipDetails?.status === 'ready' && <dl class="row mb-3">
               {[
                 ['Organization', group.ipDetails.organization],
@@ -137,16 +140,19 @@ export default function Status({ user }) {
                 <dt class="col-sm-3">{label}</dt><dd class="col-sm-9">{value || 'Unknown'}</dd>
               </Fragment>)}
             </dl>}
-            <Table headings={['Connection ID', 'Protocol', 'Country', 'Reported client (User-Agent)', 'Connected since (UTC)', 'Open for (seconds)']}>
+            <Table headings={['Connection ID', 'Protocol', 'Country', 'Upload', 'Download', 'Reported client (User-Agent)', 'Connected since (UTC)', 'Open for (seconds)']}>
               {status.clients.filter(client => client.ip === group.ip).map(client => <tr key={client.connectionId}>
                 <th scope="row" class="text-break">{client.connectionId}</th><td>{client.protocol}</td>
-                <td>{client.countryName} ({client.countryCode})</td><td class="text-break">{client.userAgent}</td>
+                <td>{client.countryName} ({client.countryCode})</td>
+                <td class="text-nowrap"><Rate value={client.traffic.uploadBytesPerSecond} /></td>
+                <td class="text-nowrap"><Rate value={client.traffic.downloadBytesPerSecond} /></td>
+                <td class="text-break">{client.userAgent}</td>
                 <td>{client.connectedAt}</td><td>{client.elapsedSeconds}</td>
               </tr>)}
             </Table>
           </td></tr>}
         </Fragment>)}
-        {!status.clientGroups.length && <tr><td colSpan={user.admin && status.blocklistAvailable ? 7 : 6}>No active client connections.</td></tr>}
+        {!status.clientGroups.length && <tr><td colSpan={user.admin && status.blocklistAvailable ? 9 : 8}>No active client connections.</td></tr>}
       </Table>
       {status.blocklistAvailable && <p><Link href="/blocked-ips">View blocked IPs</Link></p>}
       <h2 class="h4 mt-4">Connections by country</h2>

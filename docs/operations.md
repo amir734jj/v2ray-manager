@@ -250,6 +250,18 @@ apply locally generated files.
   sample). Closed sockets contribute to the sample; all values reset on restart.
   Clients are grouped by IP; expand a group to see
   connection IDs, countries, reported User-Agents, start times, and elapsed seconds.
+  Both IP groups and expanded connections show upload/download speeds, sampled
+  on the same five-second interval as aggregate throughput and formatted in
+  binary bytes per second. New connections show "Collecting..." until their first
+  sample; a group does too if any displayed connection is not yet sampled.
+  Group speeds sum only the displayed, currently open sockets for that IP;
+  closed and omitted sockets still contribute to aggregate throughput, so group
+  speeds need not add up to the gateway total. `/api/status.json` and Socket.IO
+  expose these rates as `traffic.uploadBytesPerSecond` and
+  `traffic.downloadBytesPerSecond` on each `clientGroups` and `clients` entry.
+  Individual client traffic also includes cumulative `uploadBytes`,
+  `downloadBytes` and the sampled `intervalSeconds`. This measures actual
+  traffic, not the client's maximum available bandwidth.
   The selected group stays expanded across refreshes. `/api/status.json` provides
   both grouped summaries and individual connections. At most **1,000 active
   connection details** are retained, with User-Agent text limited to 256 characters.

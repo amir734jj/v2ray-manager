@@ -74,11 +74,10 @@ const counters = ['vless', 'vmess', 'trojan', 'shadowsocks'].map(protocol => ({
   transport: 'ws', protocol, active: 0, total: 0, errors: 0,
 }));
 const countries = new Map();
-const clients = new Set();
+const clients = new Map();
 const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 export const MAX_CLIENT_DETAILS = 1000;
 export const MAX_USER_AGENT_LENGTH = 256;
-export const trackProxyTraffic = traffic.track;
 
 function connectionTotals() {
   const totals = { active: 0, total: 0, errors: 0 };
@@ -91,8 +90,9 @@ function connectionTotals() {
 }
 
 export function trackConnection(transport, protocol, connection, {
-  country, ip, userAgent, connectionId = randomUUID(), connectedAt = new Date().toISOString(),
+  country, ip, userAgent, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
 } = {}) {
+  const clientTraffic = traffic.track(connection, bufferedBytes);
   const counter = counters.find(item => item.transport === transport && item.protocol === protocol);
   const code = typeof country === 'string' && /^(?:[A-Z]{2}|T1)$/.test(country) && country !== 'XX'
     ? country : 'unknown';
@@ -115,7 +115,7 @@ export function trackConnection(transport, protocol, connection, {
       ? userAgent.slice(0, MAX_USER_AGENT_LENGTH) : 'Unknown',
     connectedAt,
   } : null;
-  if (client) clients.add(client);
+  if (client) clients.set(client, clientTraffic);
   for (const row of [counter, countryCounter]) {
     row.active++;
     row.total++;
@@ -140,19 +140,27 @@ export function trackConnection(transport, protocol, connection, {
 
 export function snapshot(ipDetails) {
   const totals = connectionTotals();
-  const activeClients = [...clients].map(client => ({
+  const activeClients = [...clients].map(([client, clientTraffic]) => ({
     ...client,
+    traffic: clientTraffic.snapshot(),
     elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
   }));
   const groups = new Map();
   for (const client of activeClients) {
     if (!groups.has(client.ip)) {
-      groups.set(client.ip, { ip: client.ip, active: 0, countries: new Map(), protocols: new Set() });
+      groups.set(client.ip, {
+        ip: client.ip, active: 0, countries: new Map(), protocols: new Set(),
+        traffic: { uploadBytesPerSecond: 0, downloadBytesPerSecond: 0 },
+      });
     }
     const group = groups.get(client.ip);
     group.active++;
     group.countries.set(client.countryCode, { code: client.countryCode, name: client.countryName });
     group.protocols.add(client.protocol);
+    for (const field of ['uploadBytesPerSecond', 'downloadBytesPerSecond']) {
+      group.traffic[field] = group.traffic[field] === null || client.traffic[field] === null
+        ? null : group.traffic[field] + client.traffic[field];
+    }
   }
   return {
     startedAt: startedAt.toISOString(),
@@ -173,6 +181,7 @@ export function snapshot(ipDetails) {
       active: group.active,
       countries: [...group.countries.values()].sort((a, b) => a.code.localeCompare(b.code)),
       protocols: [...group.protocols].sort(),
+      traffic: group.traffic,
       ipDetails: ipDetails ? ipDetails.lookup(group.ip) : { status: 'unavailable' },
     })).sort((a, b) => a.ip.localeCompare(b.ip)),
   };

@@ -4,7 +4,7 @@ import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
 import { createGatewayLogger } from './logger.js';
 import { logUpstreamTraffic } from './upstream-traffic.js';
-import { trackConnection, trackProxyTraffic, createStatusApp, startResourceRecording, stopResourceRecording, MAX_USER_AGENT_LENGTH } from './status.js';
+import { trackConnection, createStatusApp, startResourceRecording, stopResourceRecording, MAX_USER_AGENT_LENGTH } from './status.js';
 import { normalizeIp } from './blocklist.js';
 import { createDatabase } from './database.js';
 import { attachRealtime } from './realtime.js';
@@ -184,8 +184,11 @@ server.on('upgrade', (request, socket, head) => {
     protocol: path.slice(1),
     connectedAt: new Date().toISOString(),
   };
-  const connection = { client, fail: trackConnection('ws', client.protocol, socket, client), blocked: false };
-  trackProxyTraffic(socket, head.length);
+  const connection = {
+    client,
+    fail: trackConnection('ws', client.protocol, socket, { ...client, bufferedBytes: head.length }),
+    blocked: false,
+  };
   sockets.set(socket, connection);
   wsConnections.set(request, connection);
   proxy.ws(request, socket, head, { target });

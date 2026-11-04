@@ -9,12 +9,20 @@ export function createTrafficMeter({ now = () => performance.now(), upstream = f
   let sampledAt = now();
   let rate = { intervalSeconds: null, uploadBytesPerSecond: null, downloadBytesPerSecond: null };
 
+  function socketTotals(socket, baseline) {
+    return {
+      uploadBytes: socket[uploadCounter] - baseline.upload,
+      downloadBytes: socket[downloadCounter] - baseline.download,
+    };
+  }
+
   function totals() {
     let uploadBytes = closedUploadBytes;
     let downloadBytes = closedDownloadBytes;
     for (const [socket, baseline] of sockets) {
-      uploadBytes += socket[uploadCounter] - baseline.upload;
-      downloadBytes += socket[downloadCounter] - baseline.download;
+      const current = socketTotals(socket, baseline);
+      uploadBytes += current.uploadBytes;
+      downloadBytes += current.downloadBytes;
     }
     return { uploadBytes, downloadBytes };
   }
@@ -23,13 +31,18 @@ export function createTrafficMeter({ now = () => performance.now(), upstream = f
     const baseline = {
       upload: socket[uploadCounter] - (upstream ? 0 : bufferedBytes),
       download: socket[downloadCounter] - (upstream ? bufferedBytes : 0),
+      sampledUploadBytes: 0,
+      sampledDownloadBytes: 0,
+      rate: { intervalSeconds: null, uploadBytesPerSecond: null, downloadBytesPerSecond: null },
     };
     sockets.set(socket, baseline);
     socket.once('close', () => {
-      closedUploadBytes += socket[uploadCounter] - baseline.upload;
-      closedDownloadBytes += socket[downloadCounter] - baseline.download;
+      const current = socketTotals(socket, baseline);
+      closedUploadBytes += current.uploadBytes;
+      closedDownloadBytes += current.downloadBytes;
       sockets.delete(socket);
     });
+    return { snapshot: () => ({ ...socketTotals(socket, baseline), ...baseline.rate }) };
   }
 
   function sample() {
@@ -42,6 +55,16 @@ export function createTrafficMeter({ now = () => performance.now(), upstream = f
       uploadBytesPerSecond: (uploadBytes - previousUploadBytes) / intervalSeconds,
       downloadBytesPerSecond: (downloadBytes - previousDownloadBytes) / intervalSeconds,
     };
+    for (const [socket, baseline] of sockets) {
+      const current = socketTotals(socket, baseline);
+      baseline.rate = {
+        intervalSeconds,
+        uploadBytesPerSecond: (current.uploadBytes - baseline.sampledUploadBytes) / intervalSeconds,
+        downloadBytesPerSecond: (current.downloadBytes - baseline.sampledDownloadBytes) / intervalSeconds,
+      };
+      baseline.sampledUploadBytes = current.uploadBytes;
+      baseline.sampledDownloadBytes = current.downloadBytes;
+    }
     sampledAt = currentTime;
     previousUploadBytes = uploadBytes;
     previousDownloadBytes = downloadBytes;
