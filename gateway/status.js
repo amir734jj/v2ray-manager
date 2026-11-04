@@ -150,16 +150,18 @@ export function snapshot(ipDetails) {
     if (!groups.has(client.ip)) {
       groups.set(client.ip, {
         ip: client.ip, active: 0, countries: new Map(), protocols: new Set(),
-        traffic: { uploadBytesPerSecond: 0, downloadBytesPerSecond: 0 },
+        traffic: { uploadBytesPerSecond: null, downloadBytesPerSecond: null, sampledSockets: 0 },
       });
     }
     const group = groups.get(client.ip);
     group.active++;
     group.countries.set(client.countryCode, { code: client.countryCode, name: client.countryName });
     group.protocols.add(client.protocol);
+    if (client.traffic.intervalSeconds !== null) group.traffic.sampledSockets++;
     for (const field of ['uploadBytesPerSecond', 'downloadBytesPerSecond']) {
-      group.traffic[field] = group.traffic[field] === null || client.traffic[field] === null
-        ? null : group.traffic[field] + client.traffic[field];
+      if (client.traffic[field] !== null) {
+        group.traffic[field] = (group.traffic[field] ?? 0) + client.traffic[field];
+      }
     }
   }
   return {

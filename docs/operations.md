@@ -253,8 +253,11 @@ apply locally generated files.
   Both IP groups and expanded connections show upload/download speeds, sampled
   on the same five-second interval as aggregate throughput and formatted in
   binary bytes per second. New connections show "Collecting..." until their first
-  sample; a group does too if any displayed connection is not yet sampled.
-  Group speeds sum only the displayed, currently open sockets for that IP;
+  sample; a group does too only while none of its displayed sockets are sampled.
+  New unsampled sockets do not hide rates from already sampled sockets. While
+  sampling is incomplete, the socket count shows how many are sampled; the API
+  exposes this count as `clientGroups[].traffic.sampledSockets`.
+  Group speeds sum only the sampled, displayed, currently open sockets for that IP;
   closed and omitted sockets still contribute to aggregate throughput, so group
   speeds need not add up to the gateway total. `/api/status.json` and Socket.IO
   expose these rates as `traffic.uploadBytesPerSecond` and

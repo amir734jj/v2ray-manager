@@ -106,7 +106,7 @@ export default function Status({ user }) {
         {' '}{status.clientDetails.omitted} sockets are omitted from IP groups; protocol and country totals still include every socket.
       </div>}
       <p class="text-body-secondary">One group per IP, not per person or device. Expand to see sockets. User-Agent may be missing or spoofed and does not reliably identify a device model.</p>
-      <p class="text-body-secondary">Upload/download speeds average the latest five-second sample across displayed open sockets. Upload is client to gateway; download is gateway to client. New connections show Collecting... until sampled.</p>
+      <p class="text-body-secondary">Upload/download speeds average the latest five-second sample across sampled, displayed open sockets. Upload is client to gateway; download is gateway to client. New sockets join the rate after their first sample; an IP group waits only until at least one socket is sampled.</p>
       <p class="text-body-secondary">Approximate IP location and network data from ipwho.is, cached for 24 hours. VPNs and proxies may show the exit server's location, not the client's.</p>
       <Table headings={['IP address', 'Location', 'ISP / Network', 'Protocols', status.clientDetails.omitted ? 'Displayed sockets' : 'Open client sockets', 'Upload', 'Download', 'Details', ...(user.admin && status.blocklistAvailable ? ['Actions'] : [])]}>
         {status.clientGroups.map(group => <Fragment key={group.ip}>
@@ -117,7 +117,12 @@ export default function Status({ user }) {
               ? <>{group.ipDetails.isp || group.ipDetails.organization || 'Unknown'}
                 {group.ipDetails.asn !== null && <div class="small text-body-secondary">AS{group.ipDetails.asn}</div>}</>
               : group.ipDetails?.status === 'loading' ? 'Looking up...' : 'Unavailable'}</td>
-            <td>{group.protocols.join(', ')}</td><td>{group.active}</td>
+            <td>{group.protocols.join(', ')}</td>
+            <td>{group.active}
+              {group.traffic.sampledSockets < group.active && <div class="small text-body-secondary">
+                {group.traffic.sampledSockets}/{group.active} sampled
+              </div>}
+            </td>
             <td class="text-nowrap"><Rate value={group.traffic.uploadBytesPerSecond} /></td>
             <td class="text-nowrap"><Rate value={group.traffic.downloadBytesPerSecond} /></td>
             <td><button class="btn btn-sm btn-outline-secondary" aria-expanded={expandedIp === group.ip} onClick={() => {
