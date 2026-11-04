@@ -72,15 +72,15 @@ any manually configured h2c labels, and `V2RAY_GRPC_HOST` from environment
 variables. The Compose file no longer exposes the old ports or defines
 HTTP/2 routing. Remove unused DNS records if desired.
 
-Regenerate and re-import profiles: older downloaded files do not update
-automatically. Local rotation removes obsolete `connection-grpc.txt` and
-`qr-grpc.png` files and migrates older client balancer rules to direct WebSocket
-outbounds. Server migration drops the obsolete listeners while preserving
-WebSocket ports and credentials. Initialization rewrites the mounted server
-configuration from the WebSocket template.
+Remove obsolete `connection-grpc.txt` and `qr-grpc.png` files manually, locally
+and on the FTP server. Also remove old generated server/client configurations
+containing obsolete listeners, outbounds, balancers, or observatory settings
+before running rotation so it can regenerate them from the WebSocket templates.
+There is no automatic legacy cleanup or migration.
 
-Existing obsolete files on the FTP server are not deleted automatically;
-remove those two filenames from each remote protocol folder manually.
+Regenerate and re-import profiles: older downloaded files do not update
+automatically. Initialization rewrites the mounted server configuration from
+the WebSocket template. Coolify domains and settings must be updated manually.
 
 ## Generated profiles and FTP exports
 
@@ -116,7 +116,8 @@ npm run rotate -- ws.hesamian.com --uuid <uuid>
 ```
 
 Rotation generates `v2ray-all/server.json`, `v2ray-all/client.json`, and the
-four protocol folders. Existing TCP server configurations are migrated to WS.
+four protocol folders. Existing configurations must already use WebSocket;
+replace older ones manually before rotating.
 
 For this Compose deployment, set the UUID as `V2RAY_UUID` in Coolify and
 redeploy. Local generated files are not mounted into the named volume, so a
@@ -207,7 +208,8 @@ npm test
 
 Gateway tests cover all four WebSocket routes, binary streaming, health checks,
 status counters, countries, metadata validation, and failed upstreams.
-Generator tests cover all profiles, share links, rotation, and migration.
+Generator tests cover all profiles, share links, rotation, and preservation of
+files that require manual cleanup.
 
 Set `V2RAY_TEST_BINARY` to the absolute path of a V2Fly binary for actual
 proxy traffic tests through all four WebSocket outbounds. Optionally set

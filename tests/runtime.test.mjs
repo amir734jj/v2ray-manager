@@ -95,7 +95,7 @@ test('real V2Ray traffic through all WebSocket outbounds', {
       client.inbounds[0].port = socksPort;
       // The local HTTP origin uses TCP only; avoid unrelated UDP port reservations.
       client.inbounds[0].settings.udp = false;
-      const outbound = client.outbounds.find(item => item.tag === `${protocol}-ws`);
+      const outbound = client.outbounds.find(item => item.protocol === protocol);
       const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
       target.address = '127.0.0.1';
       target.port = gatewayPort;
@@ -128,7 +128,7 @@ test('real V2Ray traffic through all WebSocket outbounds', {
       delete client.routing;
       const socksPort = await freePort();
       client.inbounds[0].port = socksPort;
-      const wsOutbound = client.outbounds.find(outbound => outbound.tag === 'shadowsocks-ws');
+      const wsOutbound = client.outbounds.find(outbound => outbound.protocol === 'shadowsocks');
       wsOutbound.settings.servers[0].address = '127.0.0.1';
       wsOutbound.settings.servers[0].port = pluginPort;
       wsOutbound.streamSettings = { network: 'tcp', security: 'none' };

@@ -11,7 +11,7 @@
  */
 
 import { randomUUID }              from 'crypto';
-import { readFile, writeFile, access, mkdir, rm } from 'fs/promises';
+import { readFile, writeFile, access, mkdir } from 'fs/promises';
 import { join, dirname }           from 'path';
 import { fileURLToPath }           from 'url';
 import QRCode                      from 'qrcode';
@@ -88,10 +88,6 @@ async function main() {
 
     await writeFile(join(projectDir, dir, 'connection.txt'), wsUrl + '\n');
     await QRCode.toFile(qrImagePath, wsUrl, { type: 'png', width: 512, margin: 2 });
-    for (const file of ['connection-grpc.txt', 'qr-grpc.png']) {
-      await rm(join(projectDir, dir, file), { force: true });
-    }
-
     // Update per-protocol client.json (bootstrap from templates/<dir>.template.json if missing)
     const clientTemplatePath = join(projectDir, 'v2ray/templates/' + dir + '.template.json');
     const clientSource = await access(clientJsonPath).then(() => clientJsonPath)

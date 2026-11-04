@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync, renameSync, unlinkSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync, renameSync, unlinkSync } from 'fs';
 import { execSync } from 'child_process';
 import { join } from 'path';
 import QRCode from 'qrcode';
@@ -45,10 +45,6 @@ if (FTP_HOST) {
     const wsUrl = urls[dir];
     const outDir = `/tmp/${dir}`;
     mkdirSync(outDir, { recursive: true });
-    for (const file of ['connection-grpc.txt', 'qr-grpc.png']) {
-      rmSync(join(outDir, file), { force: true });
-    }
-
     // client.json from template
     const clientJson = JSON.parse(readFileSync(`/app/templates/${dir}.template.json`, 'utf8'));
     configureClient(clientJson, serverJson, V2RAY_HOST);

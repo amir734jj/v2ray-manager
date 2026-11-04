@@ -20,7 +20,6 @@ function assertClient(config, server, host = wsHost) {
     const protocol = outbound.protocol;
     const inbound = server.inbounds.find(item => item.protocol === protocol);
     const target = (outbound.settings.vnext ?? outbound.settings.servers)[0];
-    assert.equal(outbound.tag, `${protocol}-ws`);
     assert.equal(target.address, host);
     assert.equal(target.port, 443);
     assert.equal(outbound.streamSettings.network, 'ws');
@@ -40,7 +39,7 @@ function assertClient(config, server, host = wsHost) {
     assert.equal(rule.balancerTag, undefined);
     if (rule.outboundTag) assert.ok(tags.has(rule.outboundTag));
   }
-  assert.ok(config.routing.rules.some(rule => rule.outboundTag === proxyOutbounds[0].tag && rule.network));
+  assert.equal(config.outbounds[0], proxyOutbounds[0]);
 }
 
 test('server exposes only four WS listeners and preserves ports and credentials', async () => {
@@ -64,10 +63,14 @@ test('all generated clients use only WS with direct routing and no transport bal
   for (const name of [...protocols, 'client']) {
     const template = await load(name);
     const direct = template.outbounds.filter(outbound => !protocols.includes(outbound.protocol));
+    const routing = structuredClone(template.routing);
+    const tags = template.outbounds.map(outbound => outbound.tag);
     configureClient(template, server, wsHost);
     assertClient(template, server);
     if (name === 'shadowsocks') assert.equal(template.inbounds[0].settings.udp, false);
     assert.deepEqual(template.outbounds.filter(outbound => !protocols.includes(outbound.protocol)), direct);
+    assert.deepEqual(template.routing, routing);
+    assert.deepEqual(template.outbounds.map(outbound => outbound.tag), tags);
     const snapshot = structuredClone(template);
     assert.deepEqual(configureClient(template, server, wsHost), snapshot);
   }
@@ -101,31 +104,13 @@ test('share links encode only WS, TLS, public endpoint and Shadowsocks plugin', 
   assert.deepEqual(server, snapshot);
 });
 
-test('legacy TCP and dual-transport configurations migrate to WS only', async () => {
+test('non-WebSocket profiles require manual replacement rather than automatic migration', async () => {
   const server = await load('server');
-  const expected = configureServerTransports(structuredClone(server));
   const oldClient = await load('vless');
-  const originalOutbound = oldClient.outbounds[0];
-  originalOutbound.tag = 'vless-ws';
-  oldClient.outbounds.push({
-    ...structuredClone(originalOutbound),
-    tag: 'vless-grpc',
-    streamSettings: { network: 'grpc' },
-  });
-  oldClient.routing.rules.push({ type: 'field', network: 'tcp,udp', balancerTag: 'vless-auto' });
-  oldClient.routing.balancers = [{ tag: 'vless-auto', selector: ['vless-ws', 'vless-grpc'] }];
-  oldClient.observatory = { subjectSelector: ['vless-ws', 'vless-grpc'] };
-  for (const inbound of [...server.inbounds]) {
-    server.inbounds.push({
-      ...structuredClone(inbound),
-      tag: `${inbound.protocol}-grpc-53317`,
-      port: 53317,
-      streamSettings: { network: 'grpc' },
-    });
-    inbound.streamSettings = { network: 'tcp' };
-  }
-  assert.deepEqual(configureServerTransports(server), expected);
-  assertClient(configureClient(oldClient, server, wsHost), server);
+  oldClient.outbounds[0].streamSettings = { network: 'tcp' };
+  assert.throws(() => configureClient(oldClient, server, wsHost), /regenerate from templates/);
+  server.inbounds[0].streamSettings = { network: 'tcp' };
+  assert.throws(() => configureServerTransports(server), /use the WebSocket server template/);
 });
 
 test('invalid hostnames and missing credentials fail explicitly', async () => {
@@ -139,7 +124,7 @@ test('invalid hostnames and missing credentials fail explicitly', async () => {
   assert.throws(() => createConnectionUrls(server, wsHost), /VLESS inbound has no client id/);
 });
 
-test('rotation regenerates WS profiles and removes obsolete local transport exports', async () => {
+test('rotation updates WS profiles without deleting obsolete exports', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'v2ray-rotation-test-'));
   const run = promisify(execFile);
   try {
@@ -156,8 +141,6 @@ test('rotation regenerates WS profiles and removes obsolete local transport expo
       await writeFile(join(dir, protocol, 'connection-grpc.txt'), 'obsolete');
       await writeFile(join(dir, protocol, 'qr-grpc.png'), 'obsolete');
     }
-    server.inbounds[0].streamSettings = { network: 'tcp' };
-    await writeFile(join(dir, 'v2ray-all', 'server.json'), JSON.stringify(server));
     const nextHost = 'changed.example.com';
     await run(process.execPath, [join(dir, 'generator', 'rotate-id.mjs'), nextHost]);
     server = JSON.parse(await readFile(join(dir, 'v2ray-all', 'server.json'), 'utf8'));
@@ -167,7 +150,7 @@ test('rotation regenerates WS profiles and removes obsolete local transport expo
     }
     for (const protocol of protocols) {
       for (const file of ['connection-grpc.txt', 'qr-grpc.png']) {
-        await assert.rejects(readFile(join(dir, protocol, file)), { code: 'ENOENT' });
+        assert.equal(await readFile(join(dir, protocol, file), 'utf8'), 'obsolete');
       }
     }
   } finally {
