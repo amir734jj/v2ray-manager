@@ -155,6 +155,18 @@ apply locally generated files.
 
 ## Status and logs
 
+- **Gateway CPU and memory:** the status dashboard, authenticated
+  `/api/status.json`, and live Socket.IO status snapshots include `resources`.
+  `cpuPercent` measures gateway-process user plus system CPU time over the
+  actual sampling interval (`intervalSeconds`), sampled every five seconds.
+  100% means one fully occupied CPU core; multithreaded usage can exceed 100%.
+  CPU and interval are initially `null` ("Collecting..." in the dashboard).
+  `resources.memory` reports current `rssBytes`, `heapUsedBytes`,
+  `heapTotalBytes`, `externalBytes`, and `arrayBuffersBytes` at each snapshot.
+  Array-buffer memory is included in external memory; these values are not
+  additive. The dashboard shows RSS and used/allocated JavaScript heap in
+  binary units. These metrics cover only the gateway process, not total
+  host/container resources, PostgreSQL, or V2Ray.
 - **Status:** `https://v2ray.hesamian.com` (or `/status` on the gateway).
   Socket.IO pushes connection, blocklist and user changes, along with periodic
   snapshots. Status includes active tunnels, attempts, and errors by protocol

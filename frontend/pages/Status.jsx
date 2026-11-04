@@ -43,7 +43,7 @@ export default function Status({ user }) {
 
   return <>
     <h1>Gateway status</h1>
-    <p class="text-body-secondary">Live connection counters - throughput is sampled every 5 seconds</p>
+    <p class="text-body-secondary">Live connection counters - throughput and CPU usage are sampled every 5 seconds</p>
     {error && <div class="alert alert-danger" role="alert">{error}</div>}
     {refreshError && <div class="alert alert-danger" role="alert">{refreshError}</div>}
     {loading && <p role="status">Loading status...</p>}
@@ -52,6 +52,19 @@ export default function Status({ user }) {
         {[['Open client sockets', status.totals.active], ['Connection attempts', status.totals.total], ['Proxy failures', status.totals.errors]].map(([label, value]) =>
           <div class="col-12 col-sm-4" key={label}><div class="card h-100"><div class="card-body">
             <p class="text-body-secondary">{label}</p><strong class="fs-2">{value}</strong>
+          </div></div></div>)}
+      </section>
+      <h2 class="h4">Gateway process resources</h2>
+      <p class="text-body-secondary">CPU averages the latest sampling interval; 100% is one CPU core and usage can exceed 100%. Memory is for the gateway process only, not the host, container total, or V2Ray.</p>
+      <section class="row g-3 mb-4" aria-label="Gateway process resources">
+        {[
+          ['CPU usage', status.resources.cpuPercent === null ? 'Collecting...' : `${status.resources.cpuPercent.toFixed(1)}%`],
+          ['Resident memory (RSS)', prettyBytes(status.resources.memory.rssBytes, { binary: true })],
+          ['JavaScript heap used', prettyBytes(status.resources.memory.heapUsedBytes, { binary: true })],
+          ['JavaScript heap allocated', prettyBytes(status.resources.memory.heapTotalBytes, { binary: true })],
+        ].map(([label, value]) =>
+          <div class="col-12 col-sm-6 col-lg-3" key={label}><div class="card h-100"><div class="card-body">
+            <p>{label}</p><strong class="fs-2">{value}</strong>
           </div></div></div>)}
       </section>
       <h2 class="h4">Proxy throughput</h2>

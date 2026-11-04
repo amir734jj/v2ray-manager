@@ -2,6 +2,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createTrafficMeter } from './traffic.mjs';
+import { createResourceMeter } from './resources.mjs';
 import { createAuth, sameOrigin } from './auth.mjs';
 import { activateAccount, listAccounts } from './accounts.mjs';
 import { gatewayEvents } from './events.mjs';
@@ -14,8 +15,10 @@ const statusHeaders = {
 };
 const startedAt = new Date();
 const traffic = createTrafficMeter();
+const resources = createResourceMeter();
 setInterval(() => {
   traffic.sample();
+  resources.sample();
   gatewayEvents.emit('status');
   gatewayEvents.emit('heartbeat');
 }, 5000).unref();
@@ -102,6 +105,7 @@ export function snapshot() {
     uptimeSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
     totals,
     traffic: traffic.snapshot(),
+    resources: resources.snapshot(),
     connections: counters,
     countries: [...countries.values()].sort((a, b) => b.total - a.total || a.code.localeCompare(b.code)),
     clients: activeClients,
