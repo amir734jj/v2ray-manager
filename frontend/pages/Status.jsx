@@ -1,16 +1,14 @@
 import { Fragment } from 'preact';
 import { useState } from 'preact/hooks';
 import { Link } from 'preact-router/match';
+import prettyBytes from 'pretty-bytes';
 import { api, errorMessage } from '../api.mjs';
 import Table from '../components/Table.jsx';
 import { useResource } from '../useResource.mjs';
 
 function Rate({ value }) {
   if (value === null) return 'Collecting...';
-  const units = ['B/s', 'KiB/s', 'MiB/s', 'GiB/s'];
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+  return `${prettyBytes(value, { binary: true })}/s`;
 }
 
 function Counters({ rows, countries = false }) {
@@ -25,7 +23,7 @@ function Counters({ rows, countries = false }) {
 }
 
 export default function Status({ user }) {
-  const { data: status, error: refreshError, loading, refresh } = useResource('/status.json');
+  const { data: status, error: refreshError, loading, refresh } = useResource('/api/status.json');
   const [expandedIp, setExpandedIp] = useState(new URLSearchParams(location.search).get('client'));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,7 +32,7 @@ export default function Status({ user }) {
     setBusy(true);
     setError('');
     try {
-      await api.post('/blocklist/block', { ip });
+      await api.post('/api/blocklist/block', { ip });
       await refresh();
     } catch (failure) {
       setError(errorMessage(failure));
@@ -101,7 +99,7 @@ export default function Status({ user }) {
       <p class="text-body-secondary">Based on trusted Cloudflare metadata; unavailable values appear as Unknown.</p>
       <Counters rows={status.countries} countries />
       <footer class="mt-4 small text-body-secondary">
-        <p>Started {status.startedAt} - Uptime {status.uptimeSeconds}s - <a href="/status.json" data-native>JSON snapshot</a></p>
+        <p>Started {status.startedAt} - Uptime {status.uptimeSeconds}s - <a href="/api/status.json" data-native>JSON snapshot</a></p>
         <p>Counts reset on restart. Healthy listeners do not prove authenticated browsing works.</p>
       </footer>
     </>}

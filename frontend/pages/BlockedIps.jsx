@@ -4,7 +4,7 @@ import Table from '../components/Table.jsx';
 import { useResource } from '../useResource.mjs';
 
 export default function BlockedIps({ user }) {
-  const { data: status, error: refreshError, loading, refresh } = useResource('/status.json');
+  const { data: status, error: refreshError, loading, refresh } = useResource('/api/status.json');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -32,7 +32,7 @@ export default function BlockedIps({ user }) {
     {status?.blocklistAvailable && <>
       {user.admin && <form class="row g-2 mb-3" onSubmit={event => {
         event.preventDefault();
-        change('/blocklist/block', new FormData(event.currentTarget).get('ip'));
+        change('/api/blocklist/block', new FormData(event.currentTarget).get('ip'));
       }}>
         <div class="col-auto"><label class="visually-hidden" for="block-ip">IP address</label>
           <input class="form-control" id="block-ip" name="ip" placeholder="IPv4 or IPv6 address" required maxLength={45} /></div>
@@ -41,7 +41,7 @@ export default function BlockedIps({ user }) {
       <Table headings={['IP address', ...(user.admin ? ['Action'] : [])]}>
         {status.blockedIPs.map(ip => <tr key={ip}><th scope="row">{ip}</th>
           {user.admin && <td><button class="btn btn-sm btn-outline-success" disabled={busy}
-            onClick={() => change('/blocklist/unblock', ip)}>Unblock IP</button></td>}
+            onClick={() => change('/api/blocklist/unblock', ip)}>Unblock IP</button></td>}
         </tr>)}
         {!status.blockedIPs.length && <tr><td colSpan={user.admin ? 2 : 1}>No blocked IPs.</td></tr>}
       </Table>

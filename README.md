@@ -20,6 +20,13 @@ applies. A plain HTTP request to a tunnel path receives `426 Upgrade Required`.
 Keep management routes protected separately from tunnel paths in any external
 access policy.
 
+Management HTTP endpoints are under `/api`: authentication uses `/api/auth/*`,
+user management uses `/api/users`, IP controls use `/api/blocklist/*`, and the
+status snapshot is at `/api/status.json`. The old `/auth/*`, `/blocklist/*`,
+and `/status.json` paths are no longer available; update external clients and
+access policies when redeploying. Browser page routes, `/healthz`, tunnel
+paths, and the `/socket.io/` WebSocket transport are unchanged.
+
 ## Deploy
 
 1. Deploy [docker-compose.yaml](./docker-compose.yaml) in Coolify with:
@@ -156,13 +163,13 @@ apply locally generated files.
   initially show "Collecting..." until the first sample. Upload means client to
   gateway; download means gateway to client. They measure routed gateway socket
   bytes, including WebSocket framing and handshake response overhead, not
-  application payload or external TLS overhead. `/status.json` also exposes
+  application payload or external TLS overhead. `/api/status.json` also exposes
   cumulative `uploadBytes` and `downloadBytes`, rates in bytes per second, and
   the actual `intervalSeconds` (rates and interval are null before the first
   sample). Closed sockets contribute to the sample; all values reset on restart.
   Clients are grouped by IP; expand a group to see
   connection IDs, countries, reported User-Agents, start times, and elapsed seconds.
-  The selected group stays expanded across refreshes. `/status.json` provides
+  The selected group stays expanded across refreshes. `/api/status.json` provides
   both grouped summaries and individual connections. At most **1,000 active
   connection details** are retained, with User-Agent text limited to 256 characters.
   Closed connections are removed immediately; no connection history, request
@@ -170,14 +177,25 @@ apply locally generated files.
   the page warns that IP groups cover only displayed sockets; protocol/country
   totals still count all connections.
 - **Health:** `https://ws.hesamian.com/healthz` returns `ok`.
-- **Logs:** expanded request, connection, and error logs appear in Coolify stdout,
-  Each WebSocket attempt has an ID shared with the status page, with its IP,
-  country, protocol, reported client, and headers in one record. Close logs
-  include the same ID and socket lifetime; proxy failures also carry the ID.
-  HTTP request headers and error stacks are included. Common credential
-  headers (Authorization, cookies, X-Api-Key, and Cloudflare access tokens) are
-  redacted; query strings and bodies are not logged. Other headers may contain sensitive data,
-  so restrict log access and retention.
+- **Logs:** asynchronous, single-line JSON records appear in Coolify stdout.
+  Only forwarded tunnel upgrades produce routine request logs; dashboard,
+  authentication, assets, health checks and unrelated requests are not logged.
+  Proxy request logs include the connection ID shared with status, IP, country,
+  protocol, reported client, method and path, without full request headers,
+  query strings or bodies. Close logs include the same ID and socket lifetime.
+  Blocked attempts, errors, startup and administrative blocklist changes remain
+  logged. Error stacks are escaped inside the JSON record, not printed on
+  separate lines. Restrict log access and retention.
+  Every **five seconds**, `Gateway upstream throughput` reports
+  `gatewayToV2rayMbps` and `v2rayToGatewayMbps` in decimal megabits per second,
+  cumulative `gatewayToV2rayBytes` and `v2rayToGatewayBytes`, and the actual
+  `intervalSeconds`. These use the **upstream socket counters**, not the
+  client-facing dashboard meter. They include HTTP upgrade handshakes,
+  WebSocket framing and failed upstream attempts, but exclude TCP/IP overhead.
+  Closed sockets remain included in totals; idle intervals report zero and
+  totals reset on restart. Sampling reads counters without inspecting packets
+  or adding data listeners. These are observed traffic rates, not a capacity,
+  latency or packet-loss test of the internal link.
   Gateway Docker logs rotate at **10 MB per file**, with **three files** retained.
 
 ### IP blocklist

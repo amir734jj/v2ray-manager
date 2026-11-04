@@ -1,7 +1,7 @@
 import { useCallback, useContext, useEffect, useState } from 'preact/hooks';
 import { RealtimeContext } from './realtime.mjs';
 
-const resources = { '/status.json': 'status', '/api/users': 'users' };
+const resources = { '/api/status.json': 'status', '/api/users': 'users' };
 
 export function useResource(path) {
   const socket = useContext(RealtimeContext);

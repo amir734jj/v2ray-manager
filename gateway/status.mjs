@@ -140,7 +140,7 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
   });
   const { router, initialize, requireUser, requireAdmin } = createAuth({ accounts, secureCookies });
   app.use(initialize);
-  app.use('/auth', router);
+  app.use('/api/auth', router);
   app.use('/assets', express.static(fileURLToPath(new URL('./public/assets', import.meta.url)), {
     index: false, redirect: false,
   }));
@@ -152,7 +152,7 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
     gatewayEvents.emit('users');
     response.json({ user });
   });
-  app.all(['/blocklist/block', '/blocklist/unblock'], (request, response, next) => {
+  app.all(['/api/blocklist/block', '/api/blocklist/unblock'], (request, response, next) => {
     if (request.method !== 'POST') {
       response.set('Allow', 'POST').status(405).type('text').send('Method Not Allowed\n');
       return;
@@ -164,7 +164,7 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
     next();
   }, requireUser, requireAdmin, sameOrigin, express.json({ limit: '1kb' }), async (request, response, next) => {
     try {
-      if (request.path === '/blocklist/block') await blocklist.block(request.body?.ip);
+      if (request.path === '/api/blocklist/block') await blocklist.block(request.body?.ip);
       else await blocklist.unblock(request.body?.ip);
       gatewayEvents.emit('status');
       response.json({ blockedIPs: blocklist.list() });
@@ -174,7 +174,7 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
       next(error);
     }
   });
-  app.get('/status.json', requireUser, (_request, response) => {
+  app.get('/api/status.json', requireUser, (_request, response) => {
     response.json(statusSnapshot(blocklist));
   });
   app.all(['/', '/status', '/login', '/register', '/blocked-ips', '/users'], (request, response) => {

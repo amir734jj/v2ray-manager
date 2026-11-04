@@ -17,10 +17,7 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     proxy: {
-      '/auth': gateway,
       '/api': gateway,
-      '/blocklist': gateway,
-      '/status.json': gateway,
       '/socket.io': { target: gateway, ws: true },
     },
   },

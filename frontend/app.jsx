@@ -48,7 +48,7 @@ function App() {
       }
       return Promise.reject(failure);
     });
-    api.get('/auth/me').then(({ data }) => {
+    api.get('/api/auth/me').then(({ data }) => {
       if (active) {
         currentUser.current = data.user;
         setUser(data.user);
@@ -119,7 +119,7 @@ function App() {
 
   async function logout() {
     try {
-      await api.post('/auth/logout');
+      await api.post('/api/auth/logout');
       currentUser.current = null;
       setUser(null);
       setError('');

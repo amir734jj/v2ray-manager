@@ -12,7 +12,7 @@ export default function AccountForm({ registering, onSuccess, notice }) {
     setBusy(true);
     setError('');
     try {
-      const { data } = await api.post(registering ? '/auth/register' : '/auth/login', body);
+      const { data } = await api.post(registering ? '/api/auth/register' : '/api/auth/login', body);
       onSuccess(data.user);
     } catch (failure) {
       setError(errorMessage(failure));

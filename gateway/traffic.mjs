@@ -1,5 +1,7 @@
-export function createTrafficMeter({ now = () => performance.now() } = {}) {
+export function createTrafficMeter({ now = () => performance.now(), upstream = false } = {}) {
   const sockets = new Map();
+  const uploadCounter = upstream ? 'bytesWritten' : 'bytesRead';
+  const downloadCounter = upstream ? 'bytesRead' : 'bytesWritten';
   let closedUploadBytes = 0;
   let closedDownloadBytes = 0;
   let previousUploadBytes = 0;
@@ -11,21 +13,21 @@ export function createTrafficMeter({ now = () => performance.now() } = {}) {
     let uploadBytes = closedUploadBytes;
     let downloadBytes = closedDownloadBytes;
     for (const [socket, baseline] of sockets) {
-      uploadBytes += socket.bytesRead - baseline.upload;
-      downloadBytes += socket.bytesWritten - baseline.download;
+      uploadBytes += socket[uploadCounter] - baseline.upload;
+      downloadBytes += socket[downloadCounter] - baseline.download;
     }
     return { uploadBytes, downloadBytes };
   }
 
   function track(socket, bufferedBytes = 0) {
     const baseline = {
-      upload: socket.bytesRead - bufferedBytes,
-      download: socket.bytesWritten,
+      upload: socket[uploadCounter] - (upstream ? 0 : bufferedBytes),
+      download: socket[downloadCounter] - (upstream ? bufferedBytes : 0),
     };
     sockets.set(socket, baseline);
     socket.once('close', () => {
-      closedUploadBytes += socket.bytesRead - baseline.upload;
-      closedDownloadBytes += socket.bytesWritten - baseline.download;
+      closedUploadBytes += socket[uploadCounter] - baseline.upload;
+      closedDownloadBytes += socket[downloadCounter] - baseline.download;
       sockets.delete(socket);
     });
   }

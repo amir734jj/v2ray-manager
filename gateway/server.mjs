@@ -2,41 +2,14 @@ import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
-import pino from 'pino';
-import pretty from 'pino-pretty';
+import { createGatewayLogger } from './logger.mjs';
+import { logUpstreamTraffic } from './upstream-traffic.mjs';
 import { trackConnection, trackProxyTraffic, createStatusApp, MAX_USER_AGENT_LENGTH } from './status.mjs';
 import { normalizeIp } from './blocklist.mjs';
 import { createDatabase } from './database.mjs';
 import { attachRealtime } from './realtime.mjs';
 
-const logger = pino({
-  base: undefined,
-  redact: {
-    paths: [
-      'headers.authorization',
-      'headers["proxy-authorization"]',
-      'headers.cookie',
-      'headers["set-cookie"]',
-      'headers["x-api-key"]',
-      'headers["cf-access-jwt-assertion"]',
-    ],
-    censor: '[REDACTED]',
-  },
-}, pretty({
-  colorize: false,
-  translateTime: 'UTC:HH:MM:ss',
-  ignore: 'pid,hostname',
-  sync: true,
-}));
-
-function logRequest(request) {
-  logger.info({
-    method: request.method,
-    path: new URL(request.url, 'http://localhost').pathname,
-    headers: request.headers,
-    remoteAddress: request.socket.remoteAddress,
-  }, 'Gateway request');
-}
+const logger = createGatewayLogger();
 
 function parsePort(value, name) {
   const port = Number(value);
@@ -98,9 +71,8 @@ function logConnection(transport, protocol, request, metadata) {
     ...client,
     method: request.method,
     path: new URL(request.url, 'http://localhost').pathname,
-    headers: request.headers,
     remoteAddress: request.socket.remoteAddress,
-  }, 'Gateway connection opened');
+  }, 'Gateway proxy request');
   request.socket.once('close', () => {
     logger.info({
       ...client,
@@ -131,6 +103,7 @@ const proxy = httpProxy.createProxyServer({
   xfwd: true,
   changeOrigin: false,
 });
+const stopUpstreamTraffic = logUpstreamTraffic(proxy, logger);
 
 const wsConnections = new WeakMap();
 proxy.on('error', (error, request, response) => {
@@ -186,7 +159,6 @@ statusApp.use((error, _request, response, next) => {
   response.status(status).json({ error: status < 500 ? message : 'Internal Server Error' });
 });
 const server = createServer((request, response) => {
-  logRequest(request);
   const path = new URL(request.url, 'http://localhost').pathname;
   if (path === '/healthz') {
     response.writeHead(200, { 'content-type': 'text/plain' });
@@ -207,13 +179,12 @@ server.on('upgrade', (request, socket, head) => {
   if (path.startsWith('/socket.io/')) return;
   const target = routes.get(path);
   if (!target) {
-    logRequest(request);
     socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
     return;
   }
   const metadata = clientMetadata(request);
   if (metadata.ip && storedBlocklist.has(metadata.ip)) {
-    logger.warn({ ...metadata, protocol: path.slice(1), headers: request.headers }, 'Gateway connection blocked');
+    logger.warn({ ...metadata, protocol: path.slice(1) }, 'Gateway connection blocked');
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 8\r\n\r\nBlocked\n');
     return;
   }
@@ -248,6 +219,7 @@ let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  stopUpstreamTraffic();
   for (const socket of sockets.keys()) socket.destroy();
   server.close(async error => {
     proxy.close();
