@@ -11,55 +11,13 @@
  */
 
 import { randomUUID }              from 'crypto';
-import { readFile, writeFile, unlink, access } from 'fs/promises';
+import { readFile, writeFile, access, mkdir } from 'fs/promises';
 import { join, dirname }           from 'path';
 import { fileURLToPath }           from 'url';
-import { tmpdir }                  from 'os';
 import QRCode                      from 'qrcode';
-import config2vmess                from 'v2ray-tools/src/utils/config2vmess.js';
-import config2vless                from 'v2ray-tools/src/utils/config2vless.js';
-import config2trojan               from 'v2ray-tools/src/utils/config2trojan.js';
-import config2shadowsocks          from 'v2ray-tools/src/utils/config2shadowsocks.js';
+import { configureClient, configureServerTransports, createConnectionUrls, validateHost } from './connections.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * VMess share-link via v2ray-tools (config2vmess).
- * config2vmess reads an outbound-based client config, so we build a minimal
- * temporary one from the known server inbound shape.
- */
-async function makeVmessUrl(serverConfig, inbound) {
-  const { port, streamSettings, settings } = inbound;
-  const [client] = settings.clients;
-  const host = serverConfig._resolvedHost;
-
-  const clientConfig = {
-    outbounds: [{
-      tag: inbound.tag ?? `vmess-${port}`,
-      protocol: 'vmess',
-      settings: {
-        vnext: [{
-          address: host,
-          port,
-          users: [{ id: client.id, alterId: client.alterId ?? 0, security: 'auto' }],
-        }],
-      },
-      streamSettings,
-    }],
-  };
-
-  const tmpPath = join(tmpdir(), `vmess-client-${Date.now()}.json`);
-  await writeFile(tmpPath, JSON.stringify(clientConfig, null, 2));
-  try {
-    return await config2vmess({ path: tmpPath });
-  } finally {
-    await unlink(tmpPath).catch(() => {});
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Main
@@ -73,13 +31,19 @@ async function main() {
   const args    = process.argv.slice(2);
   const uuidIdx = args.indexOf('--uuid');
   const argUuid = uuidIdx !== -1 ? args[uuidIdx + 1] : null;
-  const argHost = args.find((a, i) => a !== '--uuid' && i !== uuidIdx + 1) ?? null;
+  const argHost = args.find((a, i) => a !== '--uuid' && (uuidIdx === -1 || i !== uuidIdx + 1)) ?? null;
   const newId   = argUuid ?? randomUUID();
+  const existingConn = await readFile(join(__dir, 'vless/connection.txt'), 'utf8').catch(err => {
+    if (err.code === 'ENOENT') return '';
+    throw err;
+  });
+  const hostMatch = existingConn.match(/@([^:@\s]+):/);
+  const serverHost = validateHost(argHost ?? process.env.V2RAY_HOST ?? hostMatch?.[1]);
 
   // --- Update v2ray-all/server.json (bootstrap from template if missing) -----
   const sourcePath = await access(serverPath).then(() => serverPath).catch(() => templatePath);
   const serverRaw = await readFile(sourcePath, 'utf8');
-  const serverJson = JSON.parse(serverRaw);
+  const serverJson = configureServerTransports(JSON.parse(serverRaw));
   for (const inbound of serverJson.inbounds ?? []) {
     for (const client of inbound.settings?.clients ?? []) {
       if (client.id)       client.id       = newId;
@@ -91,6 +55,7 @@ async function main() {
     }
   }
   const updatedServer = JSON.stringify(serverJson, null, 2) + '\n';
+  await mkdir(dirname(serverPath), { recursive: true });
   await writeFile(serverPath, updatedServer);
   console.log(`New ID: ${newId}  ← set this as V2RAY_UUID in Coolify`);
   console.log('Updated  v2ray-all/server.json\n');
@@ -98,36 +63,19 @@ async function main() {
   // Read back the updated config so the library works from the real file
   const config = JSON.parse(updatedServer);
 
-  // Resolve server host: CLI arg > existing connection.txt > fallback
-  const existingConn = await readFile(join(__dir, 'vless/connection.txt'), 'utf8').catch(() => '');
-  const hostMatch    = existingConn.match(/@([^:@\s]+):/);
-  const serverHost   = argHost ?? (hostMatch ? hostMatch[1] : 'YOUR_SERVER_IP');
   if (argHost) console.log(`Server:  ${serverHost}\n`);
-  if (serverHost === 'YOUR_SERVER_IP') console.warn('Warning: server address unknown — run: npm run rotate -- <ip>\n');
-  config._resolvedHost = serverHost; // pass through to makeVmessUrl
-
-  // --- Generate share URLs using v2ray-tools library -------------------------
-  const [vlessInbound]  = config.inbounds.filter(i => i.protocol === 'vless');
-  const [vmessInbound]  = config.inbounds.filter(i => i.protocol === 'vmess');
-  const [trojanInbound] = config.inbounds.filter(i => i.protocol === 'trojan');
-  const [ssInbound]     = config.inbounds.filter(i => i.protocol === 'shadowsocks');
-
-  const [vlessUrl, trojanUrl, vmessUrl, ssUrl] = await Promise.all([
-    config2vless ({ path: serverPath, inboundTag: vlessInbound?.tag, address: serverHost }),
-    config2trojan({ path: serverPath, inboundTag: trojanInbound?.tag, address: serverHost }),
-    makeVmessUrl(config, vmessInbound),
-    config2shadowsocks({ path: serverPath, inboundTag: ssInbound?.tag, address: serverHost }),
-  ]);
+  const urls = await createConnectionUrls(config, serverHost);
 
   const entries = [
-    { dir: 'vless',       label: 'VLESS',       url: vlessUrl  },
-    { dir: 'vmess',       label: 'VMess-HTTP',   url: vmessUrl  },
-    { dir: 'trojan',      label: 'Trojan',       url: trojanUrl },
-    { dir: 'shadowsocks', label: 'Shadowsocks',  url: ssUrl     },
+    { dir: 'vless',       label: 'VLESS',       url: urls.vless       },
+    { dir: 'vmess',       label: 'VMess',       url: urls.vmess       },
+    { dir: 'trojan',      label: 'Trojan',      url: urls.trojan      },
+    { dir: 'shadowsocks', label: 'Shadowsocks', url: urls.shadowsocks },
   ];
 
   // --- Write connection files, QR images & print QR codes --------------------
   for (const { dir, label, url } of entries) {
+    await mkdir(join(__dir, dir), { recursive: true });
     const qrImagePath    = join(__dir, dir, 'qr.png');
     const clientJsonPath = join(__dir, dir, 'client.json');
 
@@ -141,19 +89,7 @@ async function main() {
     if (clientSource) {
       const raw = await readFile(clientSource, 'utf8');
       const clientJson = JSON.parse(raw);
-      // v2ray protocol format
-      for (const outbound of clientJson.outbounds ?? []) {
-        for (const next of outbound.settings?.vnext ?? []) {
-          if (argHost) next.address = serverHost;
-          for (const user of next.users ?? []) {
-            if (user.id) user.id = newId;
-          }
-        }
-        for (const server of outbound.settings?.servers ?? []) {
-          if (argHost) server.address = serverHost;
-          if (server.password) server.password = newId;
-        }
-      }
+      configureClient(clientJson, config, serverHost);
       await writeFile(clientJsonPath, JSON.stringify(clientJson, null, 2) + '\n');
       console.log(`Updated  ${dir}/client.json`);
     }
@@ -177,24 +113,13 @@ async function main() {
   if (rootSource) {
     const raw = await readFile(rootSource, 'utf8');
     const clientJson = JSON.parse(raw);
-    for (const outbound of clientJson.outbounds ?? []) {
-      for (const next of outbound.settings?.vnext ?? []) {
-        if (argHost) next.address = serverHost;
-        for (const user of next.users ?? []) {
-          if (user.id) user.id = newId;
-        }
-      }
-      for (const server of outbound.settings?.servers ?? []) {
-        if (argHost) server.address = serverHost;
-        if (server.password) server.password = newId;
-      }
-    }
+    configureClient(clientJson, config, serverHost);
     await writeFile(rootClientPath, JSON.stringify(clientJson, null, 2) + '\n');
     console.log('Updated  v2ray-all/client.json (all protocols)\n');
   }
 
-  console.log('Restart the container to apply the new ID:');
-  console.log('  sudo docker compose restart');
+  console.log('For Coolify, set V2RAY_UUID and redeploy to regenerate the persistent config.');
+  console.log('Local v2ray-all/server.json is not mounted by this Compose deployment.');
 }
 
 main().catch((err) => {

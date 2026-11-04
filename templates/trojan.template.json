@@ -15,12 +15,17 @@
         "servers": [
           {
             "address": "YOUR_SERVER_IP",
-            "port": 53219,
+            "port": 443,
             "password": "00000000-0000-0000-0000-000000000000"
           }
         ]
       },
-      "streamSettings": { "network": "tcp", "security": "none" },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": { "serverName": "YOUR_SERVER_IP" },
+        "wsSettings": { "path": "/trojan", "headers": { "Host": "YOUR_SERVER_IP" } }
+      },
       "mux": { "enabled": false }
     },
     { "tag": "direct",  "protocol": "freedom" },
