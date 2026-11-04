@@ -113,7 +113,7 @@ proxy.on('error', (error, request, response) => {
     return;
   }
   connection?.fail();
-  logger.error({ ...connection?.client, err: error }, `Gateway proxy error: ${error.message}`);
+  logger.error({ ...connection?.client, err: error }, 'Gateway proxy error');
   if ('writeHead' in response) {
     if (!response.headersSent) response.writeHead(502);
     response.end('Bad Gateway\n');
@@ -150,7 +150,7 @@ const statusApp = createStatusApp({
 statusApp.use((error, _request, response, next) => {
   const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500 ? error.status : 500;
   const message = error.type === 'entity.parse.failed' ? 'Invalid JSON request' : error.message;
-  if (status < 500) logger.warn({ status }, `Gateway status page error: ${message}`);
+  if (status < 500) logger.warn({ status, reason: message }, 'Gateway status page error');
   else logger.error({ err: error }, 'Gateway status page error');
   if (response.headersSent) {
     next(error);
@@ -201,7 +201,7 @@ attachRealtime(server, {
 });
 
 function serverError(error) {
-  logger.error({ err: error }, `Gateway server error: ${error.message}`);
+  logger.error({ err: error }, 'Gateway server error');
   process.exitCode = 1;
   shutdown();
 }
@@ -224,7 +224,7 @@ function shutdown() {
   server.close(async error => {
     proxy.close();
     if (error) {
-      logger.error({ err: error }, `Gateway shutdown error: ${error.message}`);
+      logger.error({ err: error }, 'Gateway shutdown error');
       process.exitCode = 1;
     }
     try {

@@ -177,14 +177,17 @@ apply locally generated files.
   the page warns that IP groups cover only displayed sockets; protocol/country
   totals still count all connections.
 - **Health:** `https://ws.hesamian.com/healthz` returns `ok`.
-- **Logs:** asynchronous, single-line JSON records appear in Coolify stdout.
+- **Logs:** asynchronous, single-line `pino-pretty` records appear in Coolify
+  stdout, for example
+  `[20:57:39] INFO: Gateway upstream throughput {"gatewayToV2rayMbps":1.2,"v2rayToGatewayMbps":0.4}`.
+  Times are UTC and structured fields are shown inline as JSON.
   Only forwarded tunnel upgrades produce routine request logs; dashboard,
   authentication, assets, health checks and unrelated requests are not logged.
   Proxy request logs include the connection ID shared with status, IP, country,
   protocol, reported client, method and path, without full request headers,
   query strings or bodies. Close logs include the same ID and socket lifetime.
   Blocked attempts, errors, startup and administrative blocklist changes remain
-  logged. Error stacks are escaped inside the JSON record, not printed on
+  logged. Error stacks are escaped inside the error field, not printed on
   separate lines. Restrict log access and retention.
   Every **five seconds**, `Gateway upstream throughput` reports
   `gatewayToV2rayMbps` and `v2rayToGatewayMbps` in decimal megabits per second,
