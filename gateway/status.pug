@@ -33,29 +33,47 @@ html(lang="en" data-bs-theme="dark")
                 td.text-end= row.active
                 td.text-end= row.total
                 td.text-end= row.errors
-      h2.h4.mt-4 Active client connections
+      h2.h4.mt-4#active-clients Active clients by IP
       p.text-body-secondary
-        | One row per open socket, not per person. Reported client information comes from User-Agent and may be missing or spoofed;
-        |  it does not reliably identify a device model. IPs and client details are also exposed in the JSON snapshot.
+        | One group per IP, not per person or device. Expand a group to see its individual sockets.
+        |  The selected group stays open across refreshes. User-Agent may be missing or spoofed and does not reliably identify a device model.
+        |  IPs and client details are also exposed in the JSON snapshot.
       .table-responsive
         table.table.table-striped.align-middle
           thead
             tr
-              each heading in ['Connection ID', 'IP address', 'Protocol', 'Country', 'Reported client (User-Agent)', 'Connected since (UTC)', 'Open for (seconds)']
+              each heading in ['IP address', 'Country', 'Protocols', 'Open client sockets', 'Details']
                 th(scope="col")= heading
           tbody
-            each client in clients
+            each group in clientGroups
               tr
-                th.text-break(scope="row")= client.connectionId
-                td= client.ip
-                td= client.protocol
-                td #{client.countryName} (#{client.countryCode})
-                td.text-break= client.userAgent
-                td.text-nowrap= client.connectedAt
-                td.text-end= client.elapsedSeconds
-            if clients.length === 0
+                th(scope="row")= group.ip
+                td= group.countries.map(country => `${country.name} (${country.code})`).join(', ')
+                td= group.protocols.join(', ')
+                td.text-end= group.active
+                td
+                  a.btn.btn-sm.btn-outline-secondary(href=group.ip === expandedIp ? `${statusPath}#active-clients` : `${statusPath}?client=${encodeURIComponent(group.ip)}#active-clients` aria-expanded=group.ip === expandedIp)= group.ip === expandedIp ? 'Hide connections' : 'View connections'
+              if group.ip === expandedIp
+                tr
+                  td(colspan="5")
+                    .table-responsive
+                      table.table.table-striped.align-middle.mb-0
+                        thead
+                          tr
+                            each heading in ['Connection ID', 'Protocol', 'Country', 'Reported client (User-Agent)', 'Connected since (UTC)', 'Open for (seconds)']
+                              th(scope="col")= heading
+                        tbody
+                          each client in clients.filter(client => client.ip === group.ip)
+                            tr
+                              th.text-break(scope="row")= client.connectionId
+                              td= client.protocol
+                              td #{client.countryName} (#{client.countryCode})
+                              td.text-break= client.userAgent
+                              td.text-nowrap= client.connectedAt
+                              td.text-end= client.elapsedSeconds
+            if clientGroups.length === 0
               tr
-                td.text-body-secondary(colspan="7") No active client connections.
+                td.text-body-secondary(colspan="5") No active client connections.
       h2.h4.mt-4 Connections by country
       p.text-body-secondary Based on trusted Cloudflare metadata; unavailable values appear as Unknown.
       .table-responsive

@@ -65,8 +65,10 @@ apply locally generated files.
 
 - **Status:** `https://v2ray.hesamian.com` (or `/status` on the gateway).
   Refreshes every **5 seconds**, with active tunnels, attempts, and errors by
-  protocol and country, plus each active connection's ID, IP, country, reported
-  User-Agent, start time, and elapsed seconds. `/status.json` provides the same data.
+  protocol and country. Clients are grouped by IP; expand a group to see
+  connection IDs, countries, reported User-Agents, start times, and elapsed seconds.
+  The selected group stays expanded across refreshes. `/status.json` provides
+  both grouped summaries and individual connections.
 - **Health:** `https://ws.hesamian.com/healthz` returns `ok`.
 - **Logs:** expanded request, connection, and error logs appear in Coolify stdout,
   Each WebSocket attempt has an ID shared with the status page, with its IP,
@@ -78,8 +80,9 @@ apply locally generated files.
   so restrict log access and retention.
 
 Counters reset on restart. Open tunnels and healthy listeners do not prove
-authenticated browsing works. Each client row is an open socket, not a unique
-user; User-Agent may hint at an app or device but can be missing or spoofed.
+authenticated browsing works. An IP may represent multiple users or devices;
+each connection ID identifies a socket and changes on reconnect. User-Agent
+may hint at an app or device but can be missing or spoofed.
 Device models cannot be reliably detected. Rows disappear when sockets close.
 The page and JSON expose full client IPs and User-Agents publicly unless you
 restrict status routes separately from tunnel paths. Credentials are not shown.

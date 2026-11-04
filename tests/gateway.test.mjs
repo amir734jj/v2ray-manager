@@ -66,8 +66,13 @@ test('active client details preserve separate sockets, escape reported clients a
     connectionId: 'test-connection-id', connectedAt: new Date(Date.now() - 10000).toISOString(),
   });
   trackConnection('ws', 'vmess', second, { ip: '203.0.113.8' });
-  const { clients } = await read();
+  const { clients, clientGroups } = await read();
   assert.equal(clients.length, 2);
+  assert.equal(clientGroups.length, 1);
+  assert.equal(clientGroups[0].ip, '203.0.113.8');
+  assert.equal(clientGroups[0].active, 2);
+  assert.deepEqual(clientGroups[0].protocols, ['vless', 'vmess']);
+  assert.deepEqual(clientGroups[0].countries.map(country => country.code).sort(), ['US', 'unknown'].sort());
   assert.equal(clients[0].connectionId, 'test-connection-id');
   assert.notEqual(clients[0].connectionId, clients[1].connectionId);
   assert.match(clients[1].connectionId, /^[0-9a-f-]{36}$/);
@@ -82,18 +87,31 @@ test('active client details preserve separate sockets, escape reported clients a
   assert.ok(Number.isFinite(Date.parse(clients[0].connectedAt)));
   assert.equal(clients[1].userAgent, 'Unknown');
   assert.equal(clients[1].countryName, 'Unknown');
-  const html = await (await fetch(`http://127.0.0.1:${port}/status`)).text();
-  assert.match(html, /Active client connections/);
+  const collapsed = await (await fetch(`http://127.0.0.1:${port}/status`)).text();
+  assert.match(collapsed, /Active clients by IP/);
+  assert.match(collapsed, /\/status\?client=203\.0\.113\.8#active-clients/);
+  assert.doesNotMatch(collapsed, /test-connection-id|&lt;script&gt;/);
+  const detailUrl = `http://127.0.0.1:${port}/status?client=203.0.113.8`;
+  const html = await (await fetch(detailUrl)).text();
+  assert.match(html, /Hide connections/);
+  assert.match(html, /href="\/status#active-clients"/);
   assert.match(html, /203\.0\.113\.8/);
   assert.match(html, /test-connection-id/);
   assert.match(html, /United States \(US\)/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>alert/);
+  assert.match(await (await fetch(detailUrl)).text(), /test-connection-id/);
+  assert.deepEqual((await read()).clientGroups, clientGroups);
   first.emit('close');
   first.emit('close');
-  assert.deepEqual((await read()).clients.map(client => client.protocol), ['vmess']);
+  const remaining = await read();
+  assert.deepEqual(remaining.clients.map(client => client.protocol), ['vmess']);
+  assert.equal(remaining.clientGroups[0].active, 1);
+  assert.deepEqual(remaining.clientGroups[0].protocols, ['vmess']);
   second.emit('close');
-  assert.deepEqual((await read()).clients, []);
+  const empty = await read();
+  assert.deepEqual(empty.clients, []);
+  assert.deepEqual(empty.clientGroups, []);
 });
 
 async function testGateway(t, trustCloudflareHeaders) {
@@ -180,6 +198,7 @@ async function testGateway(t, trustCloudflareHeaders) {
     assert.equal(before.connections.length, 4);
     assert.ok(before.connections.every(row => row.transport === 'ws'));
     assert.deepEqual(before.clients, []);
+    assert.deepEqual(before.clientGroups, []);
     for (const path of ['/', '/status', '/status.json']) {
       const response = await fetch(`${base}${path}`);
       assert.equal(response.status, 200);
@@ -239,6 +258,10 @@ async function testGateway(t, trustCloudflareHeaders) {
         const country = status.countries.find(row => row.code === (trustCloudflareHeaders ? 'US' : 'unknown'));
         assert.equal(country.active, 1);
         assert.equal(status.clients.length, 1);
+        assert.equal(status.clientGroups.length, 1);
+        assert.equal(status.clientGroups[0].ip, status.clients[0].ip);
+        assert.equal(status.clientGroups[0].active, 1);
+        assert.deepEqual(status.clientGroups[0].protocols, [protocol]);
         assert.equal(status.clients[0].ip, trustCloudflareHeaders ? '203.0.113.42' : '127.0.0.1');
         assert.equal(status.clients[0].protocol, protocol);
         assert.equal(status.clients[0].countryName, trustCloudflareHeaders ? 'United States' : 'Unknown');

@@ -66,6 +66,20 @@ export function trackConnection(transport, protocol, connection, {
 }
 
 function snapshot() {
+  const activeClients = [...clients].map(client => ({
+    ...client,
+    elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
+  }));
+  const groups = new Map();
+  for (const client of activeClients) {
+    if (!groups.has(client.ip)) {
+      groups.set(client.ip, { ip: client.ip, active: 0, countries: new Map(), protocols: new Set() });
+    }
+    const group = groups.get(client.ip);
+    group.active++;
+    group.countries.set(client.countryCode, { code: client.countryCode, name: client.countryName });
+    group.protocols.add(client.protocol);
+  }
   return {
     startedAt: startedAt.toISOString(),
     uptimeSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
@@ -76,10 +90,13 @@ function snapshot() {
     }), { active: 0, total: 0, errors: 0 }),
     connections: counters,
     countries: [...countries.values()].sort((a, b) => b.total - a.total || a.code.localeCompare(b.code)),
-    clients: [...clients].map(client => ({
-      ...client,
-      elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
-    })),
+    clients: activeClients,
+    clientGroups: [...groups.values()].map(group => ({
+      ip: group.ip,
+      active: group.active,
+      countries: [...group.countries.values()].sort((a, b) => a.code.localeCompare(b.code)),
+      protocols: [...group.protocols].sort(),
+    })).sort((a, b) => a.ip.localeCompare(b.ip)),
   };
 }
 
@@ -102,7 +119,12 @@ export function createStatusApp() {
       response.json(snapshot());
       return;
     }
-    response.render('status', { ...snapshot(), bootstrapCss });
+    response.render('status', {
+      ...snapshot(),
+      bootstrapCss,
+      statusPath: request.path,
+      expandedIp: typeof request.query.client === 'string' ? request.query.client : undefined,
+    });
   });
   return app;
 }
