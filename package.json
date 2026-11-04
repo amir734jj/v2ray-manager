@@ -8,9 +8,11 @@
     "clean": "rm -f v2ray-all/server.json v2ray-all/client.json && rm -rf vless vmess trojan shadowsocks && mkdir vless vmess trojan shadowsocks && echo Cleaned."
   },
   "dependencies": {
+    "express": "^5.1.0",
     "http-proxy-3": "^2.0.2",
     "pino": "^10.4.0",
     "pino-pretty": "^13.2.0",
+    "pug": "^3.0.3",
     "qrcode": "^1.5.4",
     "v2ray-tools": "github:amir734jj/v2ray-tools"
   }

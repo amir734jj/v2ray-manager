@@ -6,12 +6,31 @@ import { createServer as createTcpServer } from 'node:net';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { once } from 'node:events';
+import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { protocols } from '../generator/connections.mjs';
+import { trackConnection, statusResponse } from '../gateway/status.mjs';
 
 const gatewayPath = fileURLToPath(new URL('../gateway/server.mjs', import.meta.url));
 const healthcheckPath = fileURLToPath(new URL('../gateway/healthcheck.mjs', import.meta.url));
 const run = promisify(execFile);
+
+test('status counters track socket lifetime and count each failed attempt once', () => {
+  const socket = new EventEmitter();
+  const fail = trackConnection('ws', 'vless', socket);
+  const read = () => JSON.parse(statusResponse('/status.json', 'GET').body);
+  assert.deepEqual(read().totals, { active: 1, total: 1, errors: 0 });
+  fail();
+  fail();
+  assert.deepEqual(read().totals, { active: 1, total: 1, errors: 1 });
+  socket.emit('close');
+  socket.emit('close');
+  assert.deepEqual(read().totals, { active: 0, total: 1, errors: 1 });
+  assert.equal(statusResponse('/', 'GET').code, 200);
+  assert.equal(statusResponse('/', 'HEAD').body, '');
+  assert.equal(statusResponse('/', 'DELETE').code, 405);
+  assert.equal(statusResponse('/unknown', 'GET'), null);
+});
 
 async function listen(server) {
   server.listen(0, '127.0.0.1');
@@ -31,7 +50,7 @@ async function http2Request(port, path, requestHeaders = {}) {
   try {
     return await new Promise((resolve, reject) => {
       session.once('error', reject);
-      const stream = session.request({ ...requestHeaders, ':path': path, ':method': 'POST' });
+      const stream = session.request({ ':method': 'POST', ...requestHeaders, ':path': path });
       const chunks = [];
       let headers;
       let trailers;
@@ -139,6 +158,34 @@ async function testGateway(t, trustCloudflareHeaders) {
   });
   const wsPort = Number(env.GATEWAY_PORT);
   const grpcPort = Number(env.GATEWAY_GRPC_PORT);
+  const statusSnapshot = async () => (await fetch(`http://127.0.0.1:${wsPort}/status.json`)).json();
+
+  await t.test('status page is read-only, uncached and excludes monitoring requests', async () => {
+    const before = await statusSnapshot();
+    assert.deepEqual(before.totals, { active: 0, total: 0, errors: 0 });
+    assert.equal(before.connections.length, 8);
+    const response = await fetch(`http://127.0.0.1:${wsPort}/status`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/html/);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+    const html = await response.text();
+    assert.match(html, /Gateway status/);
+    assert.match(html, /http-equiv="refresh" content="5"/);
+    assert.doesNotMatch(html, /<script|<form|https?:\/\//);
+    const head = await fetch(`http://127.0.0.1:${wsPort}/status`, { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), '');
+    for (const path of ['/', '/status', '/status.json']) {
+      const rejected = await fetch(`http://127.0.0.1:${wsPort}${path}`, { method: 'POST' });
+      assert.equal(rejected.status, 405);
+      assert.equal(rejected.headers.get('allow'), 'GET, HEAD');
+      const h2 = await http2Request(grpcPort, path, { ':method': 'GET' });
+      assert.equal(h2.headers[':status'], 200);
+      assert.equal((await http2Request(grpcPort, path)).headers[':status'], 405);
+    }
+    assert.deepEqual((await statusSnapshot()).totals, before.totals);
+  });
 
   await t.test('both listeners are responsive and deployment health check succeeds', async () => {
     assert.equal(await (await fetch(`http://127.0.0.1:${wsPort}/healthz`)).text(), 'ok\n');
@@ -213,6 +260,11 @@ async function testGateway(t, trustCloudflareHeaders) {
         assert.equal(headers['upstream-protocol'], protocol);
         await firstData;
         assert.deepEqual(Buffer.concat(chunks), firstFrame);
+        const status = await statusSnapshot();
+        const counter = status.connections.find(row => row.transport === 'grpc' && row.protocol === protocol);
+        assert.equal(counter.active, 1);
+        assert.equal(counter.total, 1);
+        assert.equal(counter.errors, 0);
         stream.end(secondFrame);
         await ended;
         assert.deepEqual(Buffer.concat(chunks), Buffer.concat([firstFrame, secondFrame]));
@@ -357,6 +409,22 @@ async function testGateway(t, trustCloudflareHeaders) {
     } else {
       assert.doesNotMatch(metadataLogs, /Gateway connection metadata/);
     }
+  });
+
+  await t.test('status tracks completed attempts and transport failures without client metadata', async () => {
+    const status = await statusSnapshot();
+    assert.equal(status.totals.active, 0);
+    for (const protocol of protocols) {
+      const ws = status.connections.find(row => row.transport === 'ws' && row.protocol === protocol);
+      assert.deepEqual(ws, { transport: 'ws', protocol, active: 0, total: 1, errors: 0 });
+    }
+    assert.equal(status.connections.find(row => row.transport === 'grpc' && row.protocol === 'trojan').errors, 1);
+    assert.equal(status.connections.find(row => row.transport === 'grpc' && row.protocol === 'shadowsocks').errors, 1);
+    assert.equal(status.totals.errors, 2);
+    assert.equal(status.totals.total, 15);
+    assert.doesNotMatch(JSON.stringify(status), /203\.0\.113|2001:db8|127\.0\.0|cf-|password|metadata|Tun/);
+    const h2 = await http2Request(grpcPort, '/status.json', { ':method': 'GET' });
+    assert.deepEqual(JSON.parse(h2.body).totals, status.totals);
   });
 }
 

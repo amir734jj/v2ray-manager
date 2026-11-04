@@ -4,6 +4,7 @@ import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
 import pino from 'pino';
 import pretty from 'pino-pretty';
+import { trackConnection, statusResponse, createStatusApp } from './status.mjs';
 
 const logger = pino({
   base: undefined,
@@ -79,7 +80,9 @@ const proxy = httpProxy.createProxyServer({
   changeOrigin: false,
 });
 
-proxy.on('error', (error, _request, response) => {
+const wsFailures = new WeakMap();
+proxy.on('error', (error, request, response) => {
+  wsFailures.get(request)?.();
   logger.error({ err: error }, `Gateway proxy error: ${error.message}`);
   if ('writeHead' in response) {
     if (!response.headersSent) response.writeHead(502);
@@ -89,8 +92,21 @@ proxy.on('error', (error, _request, response) => {
   }
 });
 
+const statusApp = createStatusApp();
+statusApp.use((error, _request, response, next) => {
+  logger.error({ err: error }, `Gateway status page error: ${error.message}`);
+  if (response.headersSent) {
+    next(error);
+    return;
+  }
+  response.status(500).type('text').send('Internal Server Error\n');
+});
 const server = createServer((request, response) => {
   const path = new URL(request.url, 'http://localhost').pathname;
+  if (path === '/' || path === '/status' || path === '/status.json') {
+    statusApp(request, response);
+    return;
+  }
   if (path === '/healthz') {
     response.writeHead(200, { 'content-type': 'text/plain' });
     response.end('ok\n');
@@ -116,6 +132,12 @@ grpcServer.on('session', session => {
 grpcServer.on('stream', (stream, headers) => {
   stream.on('error', error => logger.error({ err: error }, `Gateway gRPC stream error: ${error.message}`));
   const path = headers[':path'] ?? '';
+  const status = statusResponse(path.split('?')[0], headers[':method']);
+  if (status) {
+    stream.respond({ ':status': status.code, ...status.headers });
+    stream.end(status.body);
+    return;
+  }
   if (path === '/healthz') {
     stream.respond({ ':status': 200, 'content-type': 'text/plain' });
     stream.end('ok\n');
@@ -130,12 +152,14 @@ grpcServer.on('stream', (stream, headers) => {
   }
 
   logConnection('grpc', service.slice(0, -'-grpc'.length), headers, stream.session.socket.remoteAddress);
+  const recordFailure = trackConnection('grpc', service.slice(0, -'-grpc'.length), stream);
   const session = connect(target);
   let upstream;
   let failed = false;
   const fail = error => {
     if (failed || stream.destroyed) return;
     failed = true;
+    recordFailure();
     logger.error({ err: error }, `Gateway gRPC proxy error: ${error.message}`);
     if (stream.headersSent) {
       stream.close(constants.NGHTTP2_INTERNAL_ERROR);
@@ -187,6 +211,7 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
   logConnection('ws', path.slice(1), request.headers, socket.remoteAddress);
+  wsFailures.set(request, trackConnection('ws', path.slice(1), socket));
   proxy.ws(request, socket, head, { target });
 });
 

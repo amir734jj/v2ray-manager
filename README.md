@@ -181,6 +181,34 @@ Expected response: `ok`. The gRPC gateway also serves `/healthz` over HTTP/2,
 but a health response does not prove a complete proxy tunnel works; validate
 with a generated gRPC profile.
 
+### Read-only status page
+
+For a separate status domain, add `https://v2ray.hesamian.com` in Coolify,
+targeting **gateway** on internal port **53217** with ordinary HTTP upstream,
+and point its DNS record at the server. Open the domain root to see the page.
+This additional domain does not change `V2RAY_HOST` or `V2RAY_GRPC_HOST`.
+
+The page is served at `/` and `/status` on the gateway (so it is also reachable
+on the WebSocket hostname). It shows active routed tunnels, total
+connection attempts, and proxy errors for each protocol and transport.
+The page refreshes every five seconds; `/status.json` provides the same
+aggregate data as JSON. Both endpoints also work on the HTTP/2 listener.
+Only GET and HEAD are accepted; there are no controls or reset actions.
+Express serves the HTTP status routes and renders a Pug template with local
+CSS and no browser-side JavaScript or CDN assets. The gRPC listener keeps
+native HTTP/2 handling.
+
+Counters are in memory, reset on gateway restart, and represent one process
+(not all replicas). Active sockets/streams and attempts are not authenticated
+users or proof that browsing works. Health checks, unknown routes, and status
+visits are excluded. Errors count proxy transport failures, not gRPC application
+status codes. No IPs, credentials, or destinations are exposed on the page.
+
+The endpoints have no built-in authentication: anyone who can reach the
+domain can see aggregate activity. Restrict `/status` and `/status.json` with
+proxy access controls if needed (including `/`), without protecting the
+protocol tunnel paths.
+
 ### Client IP and country logs
 
 The gateway uses Pino with `pino-pretty` for compact text logs to stdout,
