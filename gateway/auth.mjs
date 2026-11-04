@@ -6,20 +6,31 @@ import { Strategy as LocalStrategy } from 'passport-local';
 import {
   authenticateSession, createSession, registerAccount, revokeSession, SESSION_SECONDS, verifyAccount,
 } from './accounts.mjs';
+import { gatewayEvents } from './events.mjs';
 
-export function sameOrigin(request, _response, next) {
+export function isSameOrigin(headers) {
   let origin;
   try {
-    origin = new URL(request.get('origin'));
+    origin = new URL(headers.origin);
   } catch {
-    next(Object.assign(new Error('A same-origin request is required'), { status: 403 }));
-    return;
+    return false;
   }
-  if (!['http:', 'https:'].includes(origin.protocol) || origin.host !== request.get('host')) {
+  return ['http:', 'https:'].includes(origin.protocol) && origin.host === headers.host;
+}
+
+export function sameOrigin(request, _response, next) {
+  if (!isSameOrigin(request.headers)) {
     next(Object.assign(new Error('A same-origin request is required'), { status: 403 }));
     return;
   }
   next();
+}
+
+export function getSessionToken(request, secureCookies) {
+  const cookieName = secureCookies ? '__Host-gateway_session' : 'gateway_session';
+  const cookie = request.headers.cookie?.split(';').map(value => value.trim())
+    .find(value => value.startsWith(`${cookieName}=`));
+  return cookie?.slice(cookieName.length + 1);
 }
 
 export function createAuth({ accounts, secureCookies = true }) {
@@ -28,11 +39,7 @@ export function createAuth({ accounts, secureCookies = true }) {
   const cookieName = secureCookies ? '__Host-gateway_session' : 'gateway_session';
   const cookieOptions = { httpOnly: true, secure: secureCookies, sameSite: 'strict', path: '/' };
   const passport = new Passport();
-  function token(request) {
-    const cookie = request.headers.cookie?.split(';').map(value => value.trim())
-      .find(value => value.startsWith(`${cookieName}=`));
-    return cookie?.slice(cookieName.length + 1);
-  }
+  const token = request => getSessionToken(request, secureCookies);
   passport.use('local', new LocalStrategy((username, password, done) => {
     verifyAccount(accounts, { username, password }).then(user => done(null, user), done);
   }));
@@ -69,7 +76,9 @@ export function createAuth({ accounts, secureCookies = true }) {
   });
   router.use(express.json({ limit: '2kb' }));
   router.post('/register', authLimit, async (request, response) => {
-    response.status(201).json({ user: await registerAccount(accounts, request.body) });
+    const user = await registerAccount(accounts, request.body);
+    gatewayEvents.emit('users');
+    response.status(201).json({ user });
   });
   router.post('/login', authLimit, (request, response, next) => {
     passport.authenticate('local', { session: false }, async (error, user) => {
@@ -77,7 +86,9 @@ export function createAuth({ accounts, secureCookies = true }) {
       if (!user) return next(Object.assign(new Error('Invalid username or password'), { status: 401 }));
       try {
         const newToken = await createSession(accounts, user);
-        await revokeSession(accounts, token(request));
+        const oldToken = token(request);
+        await revokeSession(accounts, oldToken);
+        if (oldToken) gatewayEvents.emit('session-revoked', oldToken);
         response.cookie(cookieName, newToken, { ...cookieOptions, maxAge: SESSION_SECONDS * 1000 });
         response.json({ user });
       } catch (sessionError) {
@@ -86,7 +97,9 @@ export function createAuth({ accounts, secureCookies = true }) {
     })(request, response, next);
   });
   router.post('/logout', async (request, response) => {
-    await revokeSession(accounts, token(request));
+    const oldToken = token(request);
+    await revokeSession(accounts, oldToken);
+    if (oldToken) gatewayEvents.emit('session-revoked', oldToken);
     response.clearCookie(cookieName, cookieOptions).sendStatus(204);
   });
   router.get('/me', requireUser, (request, response) => response.json({ user: request.user }));

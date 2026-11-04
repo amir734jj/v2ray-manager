@@ -4,17 +4,21 @@ import { fileURLToPath } from 'node:url';
 import { createTrafficMeter } from './traffic.mjs';
 import { createAuth, sameOrigin } from './auth.mjs';
 import { activateAccount, listAccounts } from './accounts.mjs';
+import { gatewayEvents } from './events.mjs';
 
 const publicDirectory = fileURLToPath(new URL('./public', import.meta.url));
 const statusHeaders = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
-  'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'referrer-policy': 'no-referrer',
 };
 const startedAt = new Date();
 const traffic = createTrafficMeter();
-setInterval(() => traffic.sample(), 5000).unref();
+setInterval(() => {
+  traffic.sample();
+  gatewayEvents.emit('status');
+  gatewayEvents.emit('heartbeat');
+}, 5000).unref();
 const counters = ['vless', 'vmess', 'trojan', 'shadowsocks'].map(protocol => ({
   transport: 'ws', protocol, active: 0, total: 0, errors: 0,
 }));
@@ -55,22 +59,25 @@ export function trackConnection(transport, protocol, connection, {
     row.active++;
     row.total++;
   }
+  gatewayEvents.emit('status');
   connection.once('close', () => {
     counter.active--;
     countryCounter.active--;
     if (client) clients.delete(client);
+    gatewayEvents.emit('status');
   });
   let failed = false;
   return () => {
     if (!failed) {
       counter.errors++;
       countryCounter.errors++;
+      gatewayEvents.emit('status');
     }
     failed = true;
   };
 }
 
-function snapshot() {
+export function snapshot() {
   const totals = counters.reduce((total, row) => ({
     active: total.active + row.active,
     total: total.total + row.total,
@@ -112,14 +119,23 @@ function snapshot() {
   };
 }
 
+export function statusSnapshot(blocklist) {
+  return { ...snapshot(), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
+}
+
 export function createStatusApp({ blocklist, accounts, secureCookies = true } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
   app.enable('strict routing');
   app.enable('case sensitive routing');
-  app.use((_request, response, next) => {
+  app.use((request, response, next) => {
     response.set(statusHeaders);
+    const host = request.headers.host;
+    const websocketSources = typeof host === 'string' && /^(?:\[[a-f0-9:.]+\]|[a-z0-9.-]+)(?::[0-9]{1,5})?$/i.test(host)
+      ? ` ws://${host} wss://${host}` : '';
+    response.set('content-security-policy',
+      `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'${websocketSources}; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`);
     next();
   });
   const { router, initialize, requireUser, requireAdmin } = createAuth({ accounts, secureCookies });
@@ -132,7 +148,9 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
     response.json({ users: await listAccounts(accounts) });
   });
   app.post('/api/users/:id/activate', requireUser, requireAdmin, sameOrigin, async (request, response) => {
-    response.json({ user: await activateAccount(accounts, request.params.id) });
+    const user = await activateAccount(accounts, request.params.id);
+    gatewayEvents.emit('users');
+    response.json({ user });
   });
   app.all(['/blocklist/block', '/blocklist/unblock'], (request, response, next) => {
     if (request.method !== 'POST') {
@@ -148,6 +166,7 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
     try {
       if (request.path === '/blocklist/block') await blocklist.block(request.body?.ip);
       else await blocklist.unblock(request.body?.ip);
+      gatewayEvents.emit('status');
       response.json({ blockedIPs: blocklist.list() });
     } catch (error) {
       if (error instanceof TypeError) error.status = 400;
@@ -156,7 +175,7 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
     }
   });
   app.get('/status.json', requireUser, (_request, response) => {
-    response.json({ ...snapshot(), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) });
+    response.json(statusSnapshot(blocklist));
   });
   app.all(['/', '/status', '/login', '/register', '/blocked-ips', '/users'], (request, response) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {

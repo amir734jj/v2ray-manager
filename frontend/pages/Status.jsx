@@ -45,7 +45,7 @@ export default function Status({ user }) {
 
   return <>
     <h1>Gateway status</h1>
-    <p class="text-body-secondary">Live connection counters - refreshes every 5 seconds</p>
+    <p class="text-body-secondary">Live connection counters - throughput is sampled every 5 seconds</p>
     {error && <div class="alert alert-danger" role="alert">{error}</div>}
     {refreshError && <div class="alert alert-danger" role="alert">{refreshError}</div>}
     {loading && <p role="status">Loading status...</p>}

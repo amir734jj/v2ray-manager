@@ -13,6 +13,13 @@ Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 | Trojan | `/trojan` | 53219 |
 | Shadowsocks | `/shadowsocks` | 53220 |
 
+These WebSocket paths are public to tunnel clients: they do not require a
+management account, session cookie, or browser Origin header. V2Ray still
+validates its own configured credentials, and the gateway's IP blocklist still
+applies. A plain HTTP request to a tunnel path receives `426 Upgrade Required`.
+Keep management routes protected separately from tunnel paths in any external
+access policy.
+
 ## Deploy
 
 1. Deploy [docker-compose.yaml](./docker-compose.yaml) in Coolify with:
@@ -28,7 +35,8 @@ Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 3. Optionally attach `https://v2ray.hesamian.com` to the same port for status.
 4. Point Cloudflare DNS at the server, enable proxying and WebSockets, and use
    **Full (strict)** TLS with a valid origin certificate. Exclude tunnel paths
-   from caching and interactive challenges.
+   and the management Socket.IO path `/socket.io/` from caching and interactive
+   challenges. Allow WebSocket upgrades on both.
 5. Deploy and import the generated profiles. Clients use **port 443**.
 6. Restrict access to the management hostname during setup, then visit
    `/register` over HTTPS and create the administrator account. The first
@@ -37,9 +45,9 @@ Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 
 ## Management accounts
 
-The management dashboard uses Preact, Preact Router, Axios and Vite. Passport.js authenticates local
-username/password credentials and restores database-backed sessions. Pug is no
-longer used.
+The management dashboard uses Preact, Preact Router, Axios, Socket.IO and Vite.
+Passport.js authenticates local username/password credentials and restores
+database-backed sessions. Pug is no longer used.
 
 - Usernames are case-insensitive, 3-64 characters, using letters, numbers,
   dots, underscores or hyphens. Passwords must be 10-128 characters.
@@ -64,6 +72,12 @@ longer used.
   clients behind a reverse proxy may share the same limit. The limit is in-memory
   and resets on restart. State-changing requests require a matching Origin
   header, including login, registration, logout, approval and IP changes.
+- The Socket.IO connection uses WebSocket at `/socket.io/` and requires the same
+  active account cookie and a matching Origin. Status and blocklist snapshots
+  are available to active accounts; user lists are restricted to administrators.
+  Sessions are rechecked before updates, and logout disconnects their sockets.
+  Connection errors and stale data are shown in the UI; the client reconnects
+  and resubscribes after an interruption.
 
 Sequelize initializes `gateway_users` and `gateway_sessions` in the same
 PostgreSQL database as the blocklist. The database role needs table and index
@@ -95,8 +109,8 @@ Rebuild after frontend changes. Source is in [frontend](./frontend); generated
 For frontend development, start the gateway with `DATABASE_URL` and
 `GATEWAY_SECURE_COOKIES=false`, then run `npm run dev` in another terminal.
 Open the Vite URL it prints (normally `http://127.0.0.1:5173`). Vite proxies
-management API requests to the local gateway on port 53217, preserving the
-browser's host for same-origin checks. If the gateway port changes, update the
+management API and Socket.IO requests to the local gateway on port 53217,
+preserving the browser's host for same-origin checks. If the gateway port changes, update the
 proxy target in [frontend/vite.config.mjs](./frontend/vite.config.mjs). Both
 servers must be running; the gateway still requires PostgreSQL. Do not expose
 the HTTP development server or disable secure cookies in production.
@@ -135,8 +149,9 @@ apply locally generated files.
 ## Status and logs
 
 - **Status:** `https://v2ray.hesamian.com` (or `/status` on the gateway).
-  Refreshes every **5 seconds**, with active tunnels, attempts, and errors by
-  protocol and country, plus aggregate proxy upload and download throughput.
+  Socket.IO pushes connection, blocklist and user changes, along with periodic
+  snapshots. Status includes active tunnels, attempts, and errors by protocol
+  and country, plus aggregate proxy upload and download throughput.
   Rates are averages over the most recent five-second sampling interval and
   initially show "Collecting..." until the first sample. Upload means client to
   gateway; download means gateway to client. They measure routed gateway socket

@@ -25,6 +25,8 @@
     "preact-router": "^4.1.2",
     "qrcode": "^1.5.4",
     "sequelize": "^6.37.7",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
     "v2ray-tools": "github:amir734jj/v2ray-tools"
   },
   "devDependencies": {

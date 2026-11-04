@@ -7,6 +7,7 @@ import pretty from 'pino-pretty';
 import { trackConnection, trackProxyTraffic, createStatusApp, MAX_USER_AGENT_LENGTH } from './status.mjs';
 import { normalizeIp } from './blocklist.mjs';
 import { createDatabase } from './database.mjs';
+import { attachRealtime } from './realtime.mjs';
 
 const logger = pino({
   base: undefined,
@@ -200,8 +201,10 @@ const server = createServer((request, response) => {
   statusApp(request, response);
 });
 
+// Tunnel upgrades bypass management authentication; V2Ray enforces its own credentials.
 server.on('upgrade', (request, socket, head) => {
   const path = new URL(request.url, 'http://localhost').pathname;
+  if (path.startsWith('/socket.io/')) return;
   const target = routes.get(path);
   if (!target) {
     logRequest(request);
@@ -220,6 +223,10 @@ server.on('upgrade', (request, socket, head) => {
   sockets.set(socket, connection);
   wsConnections.set(request, connection);
   proxy.ws(request, socket, head, { target });
+});
+
+attachRealtime(server, {
+  accounts, blocklist: storedBlocklist, secureCookies: secureCookies === 'true', logger,
 });
 
 function serverError(error) {

@@ -2,6 +2,7 @@ import { render } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import Router, { route } from 'preact-router';
 import { Link } from 'preact-router/match';
+import { io } from 'socket.io-client';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { api, errorMessage } from './api.mjs';
 import Navbar from './components/Navbar.jsx';
@@ -10,6 +11,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import Status from './pages/Status.jsx';
 import Users from './pages/Users.jsx';
+import { RealtimeContext } from './realtime.mjs';
 
 function Protected({ user, children }) {
   useEffect(() => {
@@ -31,6 +33,7 @@ function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [pathname, setPathname] = useState(location.pathname);
+  const [socket, setSocket] = useState(null);
   const currentUser = useRef(null);
 
   useEffect(() => {
@@ -60,6 +63,34 @@ function App() {
       api.interceptors.response.eject(interceptor);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setSocket(null);
+      return;
+    }
+    const connection = io({ transports: ['websocket'], autoConnect: false });
+    function expire() {
+      if (!currentUser.current) return;
+      currentUser.current = null;
+      setUser(null);
+      setNotice('');
+      setError('Your session expired or your account is no longer active. Please log in.');
+      route('/login', true);
+    }
+    function connectionError(failure) {
+      if (failure.data?.code === 'UNAUTHORIZED') expire();
+    }
+    connection.on('session-expired', expire);
+    connection.on('connect_error', connectionError);
+    setSocket(connection);
+    connection.connect();
+    return () => {
+      connection.off('session-expired', expire);
+      connection.off('connect_error', connectionError);
+      connection.disconnect();
+    };
+  }, [user?.id]);
 
   function login(account) {
     currentUser.current = account;
@@ -95,15 +126,17 @@ function App() {
     <Navbar user={user} pathname={pathname} onLogout={logout} />
     <main class="container pb-5">
       {error && <div class="alert alert-danger" role="alert">{error}</div>}
-      <Router onChange={({ url }) => setPathname(url.split('?')[0])}>
-        <Protected path="/" user={user}><Status user={user} /></Protected>
-        <Protected path="/status" user={user}><Status user={user} /></Protected>
-        <Protected path="/blocked-ips" user={user}><BlockedIps user={user} /></Protected>
-        <Protected path="/users" user={user}><Users user={user} /></Protected>
-        <PublicOnly path="/login" user={user}><Login onLogin={login} notice={notice} /></PublicOnly>
-        <PublicOnly path="/register" user={user}><Register onRegistered={registered} /></PublicOnly>
-        <section default><h1>Page not found</h1><Link href="/">Go to status</Link></section>
-      </Router>
+      <RealtimeContext.Provider value={socket}>
+        <Router onChange={({ url }) => setPathname(url.split('?')[0])}>
+          <Protected path="/" user={user}><Status user={user} /></Protected>
+          <Protected path="/status" user={user}><Status user={user} /></Protected>
+          <Protected path="/blocked-ips" user={user}><BlockedIps user={user} /></Protected>
+          <Protected path="/users" user={user}><Users user={user} /></Protected>
+          <PublicOnly path="/login" user={user}><Login onLogin={login} notice={notice} /></PublicOnly>
+          <PublicOnly path="/register" user={user}><Register onRegistered={registered} /></PublicOnly>
+          <section default><h1>Page not found</h1><Link href="/">Go to status</Link></section>
+        </Router>
+      </RealtimeContext.Provider>
     </main>
   </>;
 }

@@ -21,6 +21,7 @@ export default defineConfig({
       '/api': gateway,
       '/blocklist': gateway,
       '/status.json': gateway,
+      '/socket.io': { target: gateway, ws: true },
     },
   },
 });
