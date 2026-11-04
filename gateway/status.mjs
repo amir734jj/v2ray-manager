@@ -1,19 +1,19 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { createTrafficMeter } from './traffic.mjs';
+import { createAuth, sameOrigin } from './auth.mjs';
 
-const require = createRequire(import.meta.url);
-const bootstrapCss = readFileSync(require.resolve('bootstrap/dist/css/bootstrap.min.css'), 'utf8');
-const views = fileURLToPath(new URL('.', import.meta.url));
+const publicDirectory = fileURLToPath(new URL('./public', import.meta.url));
 const statusHeaders = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
-  'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+  'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'referrer-policy': 'no-referrer',
 };
 const startedAt = new Date();
+const traffic = createTrafficMeter();
+setInterval(() => traffic.sample(), 5000).unref();
 const counters = ['vless', 'vmess', 'trojan', 'shadowsocks'].map(protocol => ({
   transport: 'ws', protocol, active: 0, total: 0, errors: 0,
 }));
@@ -22,6 +22,7 @@ const clients = new Set();
 const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 export const MAX_CLIENT_DETAILS = 1000;
 export const MAX_USER_AGENT_LENGTH = 256;
+export const trackProxyTraffic = traffic.track;
 
 export function trackConnection(transport, protocol, connection, {
   country, ip, userAgent, connectionId = randomUUID(), connectedAt = new Date().toISOString(),
@@ -92,6 +93,7 @@ function snapshot() {
     startedAt: startedAt.toISOString(),
     uptimeSeconds: Math.floor((Date.now() - startedAt.getTime()) / 1000),
     totals,
+    traffic: traffic.snapshot(),
     connections: counters,
     countries: [...countries.values()].sort((a, b) => b.total - a.total || a.code.localeCompare(b.code)),
     clients: activeClients,
@@ -109,31 +111,58 @@ function snapshot() {
   };
 }
 
-export function createStatusApp() {
+export function createStatusApp({ blocklist, accounts, secureCookies = true } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
   app.enable('strict routing');
   app.enable('case sensitive routing');
-  app.set('view engine', 'pug');
-  app.set('views', views);
-  app.enable('view cache');
-  app.all(['/', '/status', '/status.json'], (request, response) => {
+  app.use((_request, response, next) => {
     response.set(statusHeaders);
+    next();
+  });
+  const { router, initialize, requireUser, requireAdmin } = createAuth({ accounts, secureCookies });
+  app.use(initialize);
+  app.use('/auth', router);
+  app.use('/assets', express.static(fileURLToPath(new URL('./public/assets', import.meta.url)), {
+    index: false, redirect: false,
+  }));
+  app.get('/api/users', requireUser, requireAdmin, async (_request, response) => {
+    response.json({ users: await accounts.list() });
+  });
+  app.post('/api/users/:id/activate', requireUser, requireAdmin, sameOrigin, async (request, response) => {
+    response.json({ user: await accounts.activate(request.params.id) });
+  });
+  app.all(['/blocklist/block', '/blocklist/unblock'], (request, response, next) => {
+    if (request.method !== 'POST') {
+      response.set('Allow', 'POST').status(405).type('text').send('Method Not Allowed\n');
+      return;
+    }
+    if (!blocklist) {
+      next(Object.assign(new Error('Blocklist controls are unavailable'), { status: 404 }));
+      return;
+    }
+    next();
+  }, requireUser, requireAdmin, sameOrigin, express.json({ limit: '1kb' }), async (request, response, next) => {
+    try {
+      if (request.path === '/blocklist/block') await blocklist.block(request.body?.ip);
+      else await blocklist.unblock(request.body?.ip);
+      response.json({ blockedIPs: blocklist.list() });
+    } catch (error) {
+      if (error instanceof TypeError) error.status = 400;
+      if (error instanceof RangeError) error.status = 409;
+      next(error);
+    }
+  });
+  app.get('/status.json', requireUser, (_request, response) => {
+    response.json({ ...snapshot(), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) });
+  });
+  app.all(['/', '/status', '/login', '/register', '/blocked-ips', '/users'], (request, response) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       response.set('Allow', 'GET, HEAD').status(405).type('text').send('Method Not Allowed\n');
       return;
     }
-    if (request.path === '/status.json') {
-      response.json(snapshot());
-      return;
-    }
-    response.render('status', {
-      ...snapshot(),
-      bootstrapCss,
-      statusPath: request.path,
-      expandedIp: typeof request.query.client === 'string' ? request.query.client : undefined,
-    });
+    response.sendFile('index.html', { root: publicDirectory });
   });
   return app;
 }

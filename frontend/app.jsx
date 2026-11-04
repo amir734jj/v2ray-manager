@@ -1,0 +1,111 @@
+import { render } from 'preact';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import Router, { route } from 'preact-router';
+import { Link } from 'preact-router/match';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import { api, errorMessage } from './api.mjs';
+import Navbar from './components/Navbar.jsx';
+import BlockedIps from './pages/BlockedIps.jsx';
+import Login from './pages/Login.jsx';
+import Register from './pages/Register.jsx';
+import Status from './pages/Status.jsx';
+import Users from './pages/Users.jsx';
+
+function Protected({ user, children }) {
+  useEffect(() => {
+    if (!user) route('/login', true);
+  }, [user]);
+  return user ? children : <p role="status">Redirecting to login...</p>;
+}
+
+function PublicOnly({ user, children }) {
+  useEffect(() => {
+    if (user) route('/', true);
+  }, [user]);
+  return user ? <p role="status">Opening dashboard...</p> : children;
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [pathname, setPathname] = useState(location.pathname);
+  const currentUser = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    const interceptor = api.interceptors.response.use(undefined, failure => {
+      if (failure.response?.status === 401 && currentUser.current) {
+        currentUser.current = null;
+        setUser(null);
+        setNotice('');
+        setError('Your session expired or your account is no longer active. Please log in.');
+        route('/login', true);
+      }
+      return Promise.reject(failure);
+    });
+    api.get('/auth/me').then(({ data }) => {
+      if (active) {
+        currentUser.current = data.user;
+        setUser(data.user);
+      }
+    }).catch(failure => {
+      if (active && failure.response?.status !== 401) setError(errorMessage(failure));
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => {
+      active = false;
+      api.interceptors.response.eject(interceptor);
+    };
+  }, []);
+
+  function login(account) {
+    currentUser.current = account;
+    setUser(account);
+    setError('');
+    setNotice('');
+    route('/', true);
+  }
+
+  function registered(account) {
+    setNotice(account.active
+      ? 'Administrator account created. You can now log in.'
+      : 'Account created. An administrator must activate it before you can log in.');
+    setError('');
+    route('/login', true);
+  }
+
+  async function logout() {
+    try {
+      await api.post('/auth/logout');
+      currentUser.current = null;
+      setUser(null);
+      setError('');
+      setNotice('');
+      route('/login', true);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    }
+  }
+
+  if (loading) return <main class="container py-5"><p role="status">Loading...</p></main>;
+  return <>
+    <Navbar user={user} pathname={pathname} onLogout={logout} />
+    <main class="container pb-5">
+      {error && <div class="alert alert-danger" role="alert">{error}</div>}
+      <Router onChange={({ url }) => setPathname(url.split('?')[0])}>
+        <Protected path="/" user={user}><Status user={user} /></Protected>
+        <Protected path="/status" user={user}><Status user={user} /></Protected>
+        <Protected path="/blocked-ips" user={user}><BlockedIps user={user} /></Protected>
+        <Protected path="/users" user={user}><Users user={user} /></Protected>
+        <PublicOnly path="/login" user={user}><Login onLogin={login} notice={notice} /></PublicOnly>
+        <PublicOnly path="/register" user={user}><Register onRegistered={registered} /></PublicOnly>
+        <section default><h1>Page not found</h1><Link href="/">Go to status</Link></section>
+      </Router>
+    </main>
+  </>;
+}
+
+render(<App />, document.getElementById('app'));

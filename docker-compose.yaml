@@ -25,6 +25,8 @@ services:
         max-size: "10m"
         max-file: "3"
     environment:
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required for accounts and the IP blocklist}
+      - GATEWAY_SECURE_COOKIES=${GATEWAY_SECURE_COOKIES:-true}
       - GATEWAY_TRUST_CLOUDFLARE_HEADERS=${GATEWAY_TRUST_CLOUDFLARE_HEADERS:-false}
     depends_on:
       v2ray:

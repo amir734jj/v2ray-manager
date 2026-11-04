@@ -1,4 +1,5 @@
 node_modules/
+gateway/public/
 
 # Generated per-rotation — contain live credentials
 vless/
