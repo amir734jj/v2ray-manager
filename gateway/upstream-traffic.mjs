@@ -13,7 +13,7 @@ export function logUpstreamTraffic(proxy, logger) {
       intervalSeconds, uploadBytes, downloadBytes, uploadBytesPerSecond, downloadBytesPerSecond,
     } = traffic.snapshot();
     logger.info({
-      intervalSeconds,
+      intervalSeconds: Number(intervalSeconds.toFixed(2)),
       gatewayToV2rayMbps: Number((uploadBytesPerSecond * 8 / 1e6).toFixed(3)),
       v2rayToGatewayMbps: Number((downloadBytesPerSecond * 8 / 1e6).toFixed(3)),
       gatewayToV2rayBytes: uploadBytes,

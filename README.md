@@ -190,7 +190,8 @@ apply locally generated files.
   Every **five seconds**, `Gateway upstream throughput` reports
   `gatewayToV2rayMbps` and `v2rayToGatewayMbps` in decimal megabits per second,
   cumulative `gatewayToV2rayBytes` and `v2rayToGatewayBytes`, and the actual
-  `intervalSeconds`. These use the **upstream socket counters**, not the
+  `intervalSeconds` rounded to two decimal places for display. Rates use the
+  unrounded interval. These use the **upstream socket counters**, not the
   client-facing dashboard meter. They include HTTP upgrade handshakes,
   WebSocket framing and failed upstream attempts, but exclude TCP/IP overhead.
   Closed sockets remain included in totals; idle intervals report zero and
