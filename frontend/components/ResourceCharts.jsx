@@ -16,6 +16,8 @@ const metrics = [
   { key: 'rssBytes', label: 'Resident memory (RSS)', format: value => prettyBytes(value, { binary: true }) },
   { key: 'heapUsedBytes', label: 'JavaScript heap used', format: value => prettyBytes(value, { binary: true }) },
   { key: 'heapTotalBytes', label: 'JavaScript heap allocated', format: value => prettyBytes(value, { binary: true }) },
+  { key: 'uploadBytesPerSecond', label: 'Proxy upload (client to proxy)', format: value => `${prettyBytes(value, { binary: true })}/s` },
+  { key: 'downloadBytesPerSecond', label: 'Proxy download (proxy to client)', format: value => `${prettyBytes(value, { binary: true })}/s` },
 ];
 
 function plotData(points) {
@@ -78,7 +80,7 @@ function ResourcePlot({ metric, series, history }) {
 
   return <>
     <div ref={container} role="img"
-      aria-label={`${metric.label}: lowest ${metric.format(series.min)}, highest ${metric.format(series.max)} over ${history.count} samples`} />
+      aria-label={`${metric.label}: lowest ${metric.format(series.min)}, highest ${metric.format(series.max)} over ${series.count ?? history.count} samples`} />
     <button class="btn btn-sm btn-outline-secondary mt-2" onClick={() => {
       if (chart.current && bounds.current) chart.current.setScale('x', { min: bounds.current.start, max: bounds.current.end });
     }} aria-label={`Reset zoom for ${metric.label}`}>Reset zoom</button>
@@ -142,9 +144,9 @@ export default function ResourceCharts() {
     };
   }, [range, retry]);
 
-  return <section class="mb-4" aria-label="Gateway resource history">
+  return <section class="mb-4" aria-label="Gateway resource and throughput history">
     <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-      <h2 class="h4 mb-0">Resource history</h2>
+      <h2 class="h4 mb-0">Resource and throughput history</h2>
       <label for="resource-range">Time range</label>
       <select id="resource-range" class="form-select w-auto" value={range} onChange={event => setRange(event.currentTarget.value)}>
         {ranges.map(([value, label]) => <option value={value} key={value}>{label}</option>)}

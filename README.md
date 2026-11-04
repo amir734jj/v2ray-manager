@@ -208,7 +208,8 @@ apply locally generated files.
   additive. The dashboard shows RSS and used/allocated JavaScript heap in
   binary units. These metrics cover only the gateway process, not total
   host/container resources, PostgreSQL, or V2Ray.
-  The dashboard plots these four metrics for the last 5 or 15 minutes, 1 or 6
+  The dashboard plots these four metrics and proxy upload/download throughput
+  for the last 5 or 15 minutes, 1 or 6
   hours, or 24 hours using uPlot. Drag a chart to zoom and use **Reset zoom** to
   restore the selected range. Charts refresh every 30 seconds; minima and maxima
   use all five-second samples in the selected range, including when zoomed.
@@ -221,7 +222,9 @@ apply locally generated files.
   restarts, then deleted; they are not kept as a full history in application memory.
   LevelDB still uses a small write buffer and cache. The Docker volume
   `gateway-metrics` must be preserved across redeploys and writable by the
-  container's `bun` user. It stores only gateway CPU and memory samples.
+  container's `bun` user. It stores gateway CPU, memory, and proxy throughput
+  samples. Older CPU and memory samples remain available, but throughput
+  history starts when this version is deployed.
   For non-Docker use, `GATEWAY_METRICS_PATH` overrides the default
   `./data/resource-history` directory. Only one gateway process may open the
   same LevelDB directory at a time. Database open and write failures are logged;

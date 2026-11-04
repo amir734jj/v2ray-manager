@@ -47,5 +47,5 @@ export function createTrafficMeter({ now = () => performance.now(), upstream = f
     previousDownloadBytes = downloadBytes;
   }
 
-  return { track, sample, snapshot: () => ({ ...totals(), ...rate }) };
+  return { track, sample, rates: () => ({ ...rate }), snapshot: () => ({ ...totals(), ...rate }) };
 }

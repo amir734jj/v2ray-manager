@@ -11,22 +11,29 @@ export const RESOURCE_RANGES = {
 const RETENTION_MS = RESOURCE_RANGES['24h'];
 const BUCKETS = 300;
 const CLEANUP_BATCH = 256;
-const METRICS = ['cpuPercent', 'rssBytes', 'heapUsedBytes', 'heapTotalBytes'];
+const REQUIRED_METRICS = ['cpuPercent', 'rssBytes', 'heapUsedBytes', 'heapTotalBytes'];
+const OPTIONAL_METRICS = ['uploadBytesPerSecond', 'downloadBytesPerSecond'];
+const METRICS = [...REQUIRED_METRICS, ...OPTIONAL_METRICS];
 
 function keyFor(timestamp) {
   return String(Math.max(0, Math.floor(timestamp))).padStart(16, '0');
 }
 
 function createSeries() {
-  return Object.fromEntries(METRICS.map(metric => [metric, { min: null, max: null, buckets: new Map() }]));
+  return Object.fromEntries(METRICS.map(metric => [metric, { min: null, max: null, count: 0, buckets: new Map() }]));
 }
 
 function validateSample(sample) {
   if (!sample || !Number.isSafeInteger(sample.timestamp) || sample.timestamp < 0) {
     throw new Error('Invalid resource history timestamp');
   }
-  for (const metric of METRICS) {
+  for (const metric of REQUIRED_METRICS) {
     if (!Number.isFinite(sample[metric])) throw new Error(`Invalid resource history value for ${metric}`);
+  }
+  for (const metric of OPTIONAL_METRICS) {
+    if (sample[metric] !== undefined && !Number.isFinite(sample[metric])) {
+      throw new Error(`Invalid resource history value for ${metric}`);
+    }
   }
 }
 
@@ -35,7 +42,9 @@ function addToSeries(series, sample, start, duration) {
   const bucketIndex = Math.min(BUCKETS - 1, Math.max(0, Math.floor((sample.timestamp - start) / duration * BUCKETS)));
   for (const metric of METRICS) {
     const value = sample[metric];
+    if (value === undefined) continue;
     const state = series[metric];
+    state.count++;
     state.min = state.min === null ? value : Math.min(state.min, value);
     state.max = state.max === null ? value : Math.max(state.max, value);
     const point = { timestamp: sample.timestamp, value };
@@ -50,12 +59,12 @@ function addToSeries(series, sample, start, duration) {
 
 function finishSeries(series) {
   return Object.fromEntries(METRICS.map(metric => {
-    const { min, max, buckets } = series[metric];
+    const { min, max, count, buckets } = series[metric];
     const points = [...buckets.values()].flatMap(bucket => {
       if (bucket.min.timestamp === bucket.max.timestamp) return [bucket.min];
       return [bucket.min, bucket.max].sort((a, b) => a.timestamp - b.timestamp);
     });
-    return [metric, { min, max, points }];
+    return [metric, { min, max, count, points }];
   }));
 }
 

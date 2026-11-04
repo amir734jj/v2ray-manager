@@ -38,6 +38,7 @@ function recordResources() {
     return;
   }
   const { cpuPercent, memory } = resources.snapshot();
+  const { uploadBytesPerSecond, downloadBytesPerSecond } = traffic.rates();
   if (cpuPercent === null) return;
   const sample = {
     timestamp: Date.now(),
@@ -45,6 +46,8 @@ function recordResources() {
     rssBytes: memory.rssBytes,
     heapUsedBytes: memory.heapUsedBytes,
     heapTotalBytes: memory.heapTotalBytes,
+    ...(uploadBytesPerSecond === null ? {} : { uploadBytesPerSecond }),
+    ...(downloadBytesPerSecond === null ? {} : { downloadBytesPerSecond }),
   };
   pendingResourceWrite = history.record(sample).then(() => {
     resourceRecordingError = null;
