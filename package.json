@@ -10,8 +10,9 @@
   },
   "dependencies": {
     "argon2": "^0.44.0",
-    "bootstrap": "^5.3.3",
     "axios": "^1.13.2",
+    "bootstrap": "^5.3.3",
+    "classic-level": "^3.0.0",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
     "http-proxy-3": "^2.0.2",

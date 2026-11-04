@@ -28,6 +28,9 @@ services:
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required for accounts and the IP blocklist}
       - GATEWAY_SECURE_COOKIES=${GATEWAY_SECURE_COOKIES:-true}
       - GATEWAY_TRUST_CLOUDFLARE_HEADERS=${GATEWAY_TRUST_CLOUDFLARE_HEADERS:-false}
+      - GATEWAY_METRICS_PATH=/data/metrics
+    volumes:
+      - gateway-metrics:/data/metrics
     depends_on:
       v2ray:
         condition: service_healthy
@@ -81,3 +84,4 @@ services:
 
 volumes:
   v2ray-cfg:
+  gateway-metrics:

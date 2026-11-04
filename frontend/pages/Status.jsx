@@ -4,6 +4,7 @@ import { Link } from 'preact-router/match';
 import prettyBytes from 'pretty-bytes';
 import { api, errorMessage } from '../api.mjs';
 import Table from '../components/Table.jsx';
+import ResourceCharts from '../components/ResourceCharts.jsx';
 import { useResource } from '../useResource.mjs';
 
 function Rate({ value }) {
@@ -67,6 +68,7 @@ export default function Status({ user }) {
             <p>{label}</p><strong class="fs-2">{value}</strong>
           </div></div></div>)}
       </section>
+      <ResourceCharts />
       <h2 class="h4">Proxy throughput</h2>
       <p class="text-body-secondary">Average over the latest five-second sample, measured at the gateway socket.</p>
       <section class="row g-3 mb-4" aria-label="Proxy throughput">

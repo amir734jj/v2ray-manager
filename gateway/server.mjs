@@ -4,10 +4,11 @@ import { isIP } from 'node:net';
 import httpProxy from 'http-proxy-3';
 import { createGatewayLogger } from './logger.mjs';
 import { logUpstreamTraffic } from './upstream-traffic.mjs';
-import { trackConnection, trackProxyTraffic, createStatusApp, MAX_USER_AGENT_LENGTH } from './status.mjs';
+import { trackConnection, trackProxyTraffic, createStatusApp, startResourceRecording, stopResourceRecording, MAX_USER_AGENT_LENGTH } from './status.mjs';
 import { normalizeIp } from './blocklist.mjs';
 import { createDatabase } from './database.mjs';
 import { attachRealtime } from './realtime.mjs';
+import { createResourceHistory } from './resource-history.mjs';
 
 const logger = createGatewayLogger();
 
@@ -30,6 +31,14 @@ if (!['true', 'false'].includes(secureCookies)) {
   throw new Error('GATEWAY_SECURE_COOKIES must be true or false');
 }
 const { blocklist: storedBlocklist, accounts, close: closeDatabase } = await createDatabase(process.env.DATABASE_URL);
+let resourceHistory;
+try {
+  resourceHistory = await createResourceHistory(process.env.GATEWAY_METRICS_PATH ?? './data/resource-history');
+} catch (error) {
+  await closeDatabase();
+  throw error;
+}
+startResourceRecording(resourceHistory, logger);
 const sockets = new Map();
 
 function clientMetadata(request) {
@@ -99,6 +108,7 @@ proxy.on('error', (error, request, response) => {
 
 const statusApp = createStatusApp({
   accounts,
+  resourceHistory,
   secureCookies: secureCookies === 'true',
   blocklist: {
     list: storedBlocklist.list,
@@ -206,6 +216,13 @@ function shutdown() {
     proxy.close();
     if (error) {
       logger.error({ err: error }, 'Gateway shutdown error');
+      process.exitCode = 1;
+    }
+    await stopResourceRecording();
+    try {
+      await resourceHistory.close();
+    } catch (historyError) {
+      logger.error({ err: historyError }, 'Gateway resource history shutdown error');
       process.exitCode = 1;
     }
     try {

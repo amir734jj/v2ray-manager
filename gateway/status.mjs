@@ -16,9 +16,50 @@ const statusHeaders = {
 const startedAt = new Date();
 const traffic = createTrafficMeter();
 const resources = createResourceMeter();
+let resourceRecording = null;
+let pendingResourceWrite = null;
+let resourceRecordingError = null;
+
+export function startResourceRecording(history, logger) {
+  resourceRecording = { history, logger };
+}
+
+export async function stopResourceRecording() {
+  resourceRecording = null;
+  await pendingResourceWrite;
+}
+
+function recordResources() {
+  if (!resourceRecording) return;
+  const { history, logger } = resourceRecording;
+  if (pendingResourceWrite) {
+    resourceRecordingError = 'A resource history sample was skipped; check gateway logs';
+    logger.warn('Resource history sample skipped: previous write is still running');
+    return;
+  }
+  const { cpuPercent, memory } = resources.snapshot();
+  if (cpuPercent === null) return;
+  const sample = {
+    timestamp: Date.now(),
+    cpuPercent,
+    rssBytes: memory.rssBytes,
+    heapUsedBytes: memory.heapUsedBytes,
+    heapTotalBytes: memory.heapTotalBytes,
+  };
+  pendingResourceWrite = history.record(sample).then(() => {
+    resourceRecordingError = null;
+  }).catch(error => {
+    resourceRecordingError = 'Resource history recording failed; check gateway logs';
+    logger.error({ err: error }, 'Resource history recording failed');
+  }).finally(() => {
+    pendingResourceWrite = null;
+  });
+}
+
 setInterval(() => {
   traffic.sample();
   resources.sample();
+  recordResources();
   gatewayEvents.emit('status');
   gatewayEvents.emit('heartbeat');
 }, 5000).unref();
@@ -127,7 +168,7 @@ export function statusSnapshot(blocklist) {
   return { ...snapshot(), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
 }
 
-export function createStatusApp({ blocklist, accounts, secureCookies = true } = {}) {
+export function createStatusApp({ blocklist, accounts, resourceHistory, secureCookies = true } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
@@ -180,6 +221,13 @@ export function createStatusApp({ blocklist, accounts, secureCookies = true } = 
   });
   app.get('/api/status.json', requireUser, (_request, response) => {
     response.json(statusSnapshot(blocklist));
+  });
+  app.get('/api/resource-history', requireUser, async (request, response) => {
+    if (!resourceHistory) {
+      throw Object.assign(new Error('Resource history is unavailable'), { status: 503 });
+    }
+    const history = await resourceHistory.read(request.query.range ?? '1h');
+    response.json({ ...history, recordingError: resourceRecordingError });
   });
   app.all(['/', '/status', '/login', '/register', '/blocked-ips', '/users'], (request, response) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {

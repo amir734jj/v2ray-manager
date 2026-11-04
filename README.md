@@ -202,6 +202,22 @@ apply locally generated files.
   additive. The dashboard shows RSS and used/allocated JavaScript heap in
   binary units. These metrics cover only the gateway process, not total
   host/container resources, PostgreSQL, or V2Ray.
+  The dashboard plots these four metrics for the last 5 or 15 minutes, 1 or 6
+  hours, or 24 hours. Charts refresh every 30 seconds; minima and maxima use
+  all five-second samples in the selected range. Graphs show per-bucket minima
+  and maxima rather than every point. Each chart uses its own vertical scale,
+  and lines connect samples across gaps (including gateway downtime). The authenticated `/api/resource-history`
+  endpoint provides the same bounded summaries. Bun can report heap used
+  greater than heap allocated, so do not treat these values as a utilization ratio.
+  Samples are kept in a disk-backed LevelDB database for 24 hours across gateway
+  restarts, then deleted; they are not kept as a full history in application memory.
+  LevelDB still uses a small write buffer and cache. The Docker volume
+  `gateway-metrics` must be preserved across redeploys and writable by the
+  container's `bun` user. It stores only gateway CPU and memory samples.
+  For non-Docker use, `GATEWAY_METRICS_PATH` overrides the default
+  `./data/resource-history` directory. Only one gateway process may open the
+  same LevelDB directory at a time. Database open and write failures are logged;
+  the dashboard reports recording errors and failed history requests.
 - **Status:** `https://v2ray.hesamian.com` (or `/status` on the gateway).
   Socket.IO pushes connection, blocklist and user changes, along with periodic
   snapshots. Status includes active tunnels, attempts, and errors by protocol

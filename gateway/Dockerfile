@@ -8,6 +8,7 @@ COPY frontend/ ./frontend/
 RUN npm run build && npm prune --omit=dev
 
 FROM oven/bun:latest
+RUN mkdir -p /data/metrics && chown bun:bun /data/metrics
 WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY gateway/ ./

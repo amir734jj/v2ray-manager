@@ -1,5 +1,6 @@
 node_modules/
 gateway/public/
+data/resource-history/
 
 # Generated per-rotation — contain live credentials
 vless/
