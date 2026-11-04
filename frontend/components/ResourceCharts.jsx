@@ -12,6 +12,9 @@ const ranges = [
   ['24h', 'Last 24 hours'],
 ];
 const metrics = [
+  { key: 'openClientSockets', label: 'Open client sockets', format: value => value.toLocaleString() },
+  { key: 'connectionAttempts', label: 'Connection attempts', format: value => value.toLocaleString() },
+  { key: 'proxyFailures', label: 'Proxy failures', format: value => value.toLocaleString() },
   { key: 'cpuPercent', label: 'CPU usage', format: value => `${value.toFixed(1)}%` },
   { key: 'rssBytes', label: 'Resident memory (RSS)', format: value => prettyBytes(value, { binary: true }) },
   { key: 'heapUsedBytes', label: 'JavaScript heap used', format: value => prettyBytes(value, { binary: true }) },
@@ -144,15 +147,15 @@ export default function ResourceCharts() {
     };
   }, [range, retry]);
 
-  return <section class="mb-4" aria-label="Gateway resource and throughput history">
+  return <section class="mb-4" aria-label="Gateway metrics history">
     <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-      <h2 class="h4 mb-0">Resource and throughput history</h2>
+      <h2 class="h4 mb-0">Gateway metrics history</h2>
       <label for="resource-range">Time range</label>
       <select id="resource-range" class="form-select w-auto" value={range} onChange={event => setRange(event.currentTarget.value)}>
         {ranges.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
       </select>
     </div>
-    <p class="text-body-secondary">Samples are recorded every 5 seconds and charts refresh every 30 seconds. Lowest and highest include every sample in the selected range, even when zoomed. Drag a chart to zoom; use Reset zoom to show the full range. Charts use independent scales and connect samples across gaps. Bun heap values may be inconsistent.</p>
+    <p class="text-body-secondary">Samples are recorded every 5 seconds and charts refresh every 30 seconds. Connection attempts and proxy failures are cumulative and reset when the gateway restarts. Lowest and highest include every sample in the selected range, even when zoomed. Drag a chart to zoom; use Reset zoom to show the full range. Charts use independent scales and connect samples across gaps. Bun heap values may be inconsistent.</p>
     {loading && <p role="status">Loading resource history...</p>}
     {error && <div class="alert alert-danger" role="alert">{error} <button class="btn btn-sm btn-outline-danger" onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
     {history?.recordingError && <div class="alert alert-warning" role="alert">{history.recordingError}</div>}

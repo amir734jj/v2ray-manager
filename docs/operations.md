@@ -210,8 +210,10 @@ apply locally generated files.
   additive. The dashboard shows RSS and used/allocated JavaScript heap in
   binary units. These metrics cover only the gateway process, not total
   host/container resources, PostgreSQL, or V2Ray.
-  Select **Show history graphs** on the status page to plot these four metrics
-  and proxy upload/download throughput. Graphs are hidden by default; hiding
+  Select **Show history graphs** on the status page to plot these four metrics,
+  proxy upload/download throughput, open client sockets, connection attempts,
+  and proxy failures. Attempts and failures are cumulative counts that reset
+  when the gateway restarts. Graphs are hidden by default; hiding
   them stops history requests and reopening them resets the range to one hour.
   The graphs cover
   for the last 5 or 15 minutes, 1 or 6
@@ -227,9 +229,9 @@ apply locally generated files.
   restarts, then deleted; they are not kept as a full history in application memory.
   LevelDB still uses a small write buffer and cache. The Docker volume
   `gateway-metrics` must be preserved across redeploys and writable by the
-  container's `bun` user. It stores gateway CPU, memory, and proxy throughput
-  samples. Older CPU and memory samples remain available, but throughput
-  history starts when this version is deployed.
+  container's `bun` user. It stores gateway CPU, memory, proxy throughput, and
+  connection counter samples. Older samples remain available; connection
+  counter history starts when this version is deployed.
   For non-Docker use, `GATEWAY_METRICS_PATH` overrides the default
   `./data/resource-history` directory. Only one gateway process may open the
   same LevelDB directory at a time. Database open and write failures are logged;
@@ -302,8 +304,9 @@ changes through this page. Use a single gateway instance; direct SQL changes
 require restarting it to reload the cache. Conflicting concurrent updates are
 rejected and can be retried. Database initialization failures
 stop startup; failed updates report an error and do not disconnect clients.
-Live connections/counters stay in memory only; no connection history, headers,
-or payloads are written to PostgreSQL.
+Live connection details stay in memory only. Aggregate counter samples are
+stored in LevelDB; no connection history, headers, or payloads are written to
+PostgreSQL.
 Behind Cloudflare, enable trusted client headers as described below, or the
 blocked address may be your reverse proxy rather than an individual client.
 

@@ -12,7 +12,10 @@ const RETENTION_MS = RESOURCE_RANGES['24h'];
 const BUCKETS = 300;
 const CLEANUP_BATCH = 256;
 const REQUIRED_METRICS = ['cpuPercent', 'rssBytes', 'heapUsedBytes', 'heapTotalBytes'];
-const OPTIONAL_METRICS = ['uploadBytesPerSecond', 'downloadBytesPerSecond'];
+const OPTIONAL_METRICS = [
+  'uploadBytesPerSecond', 'downloadBytesPerSecond',
+  'openClientSockets', 'connectionAttempts', 'proxyFailures',
+];
 const METRICS = [...REQUIRED_METRICS, ...OPTIONAL_METRICS];
 
 function keyFor(timestamp) {

@@ -40,12 +40,16 @@ function recordResources() {
   const { cpuPercent, memory } = resources.snapshot();
   const { uploadBytesPerSecond, downloadBytesPerSecond } = traffic.rates();
   if (cpuPercent === null) return;
+  const totals = connectionTotals();
   const sample = {
     timestamp: Date.now(),
     cpuPercent,
     rssBytes: memory.rssBytes,
     heapUsedBytes: memory.heapUsedBytes,
     heapTotalBytes: memory.heapTotalBytes,
+    openClientSockets: totals.active,
+    connectionAttempts: totals.total,
+    proxyFailures: totals.errors,
     ...(uploadBytesPerSecond === null ? {} : { uploadBytesPerSecond }),
     ...(downloadBytesPerSecond === null ? {} : { downloadBytesPerSecond }),
   };
@@ -75,6 +79,16 @@ const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 export const MAX_CLIENT_DETAILS = 1000;
 export const MAX_USER_AGENT_LENGTH = 256;
 export const trackProxyTraffic = traffic.track;
+
+function connectionTotals() {
+  const totals = { active: 0, total: 0, errors: 0 };
+  for (const row of counters) {
+    totals.active += row.active;
+    totals.total += row.total;
+    totals.errors += row.errors;
+  }
+  return totals;
+}
 
 export function trackConnection(transport, protocol, connection, {
   country, ip, userAgent, connectionId = randomUUID(), connectedAt = new Date().toISOString(),
@@ -125,11 +139,7 @@ export function trackConnection(transport, protocol, connection, {
 }
 
 export function snapshot() {
-  const totals = counters.reduce((total, row) => ({
-    active: total.active + row.active,
-    total: total.total + row.total,
-    errors: total.errors + row.errors,
-  }), { active: 0, total: 0, errors: 0 });
+  const totals = connectionTotals();
   const activeClients = [...clients].map(client => ({
     ...client,
     elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
