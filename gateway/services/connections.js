@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import createError from 'http-errors';
 import { createConnectionUrls, protocols, validateHost } from '@v2ray-manager/generator';
 import { publicConnection } from '../database/tunnel-connections.js';
@@ -185,7 +185,7 @@ export function createConnectionService({ connections, users, api, host, disconn
         if (!owner) throw createError(404, 'User not found');
         if (!owner.active) throw createError(409, 'Activate the dashboard account before creating its connection');
         if (await connections.findByUserId(userId)) throw createError(409, 'This user already has a connection');
-        const token = randomBytes(32).toString('hex');
+        const token = randomUUID();
         const row = await connections.create({
           id: randomUUID(), userId, credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
           enabled: true, syncStatus: 'pending',
@@ -199,7 +199,7 @@ export function createConnectionService({ connections, users, api, host, disconn
       return exclusive(async () => {
         if (!['pause', 'resume', 'reset', 'subscription'].includes(action)) throw createError(400, 'Unknown connection action');
         const row = await find(id);
-        const token = ['reset', 'subscription'].includes(action) ? randomBytes(32).toString('hex') : null;
+        const token = ['reset', 'subscription'].includes(action) ? randomUUID() : null;
         if (action === 'subscription') {
           await connections.update(row, { subscriptionTokenHash: tokenHash(token), subscriptionToken: token });
         } else {
@@ -232,7 +232,7 @@ export function createConnectionService({ connections, users, api, host, disconn
       });
     },
     async subscription(token) {
-      if (!/^[a-f0-9]{64}$/.test(token)) throw createError(404, 'Subscription not found');
+      if (!uuidPattern.test(token) && !/^[a-f0-9]{64}$/.test(token)) throw createError(404, 'Subscription not found');
       return guarded(async () => {
         const row = await connections.findBySubscriptionTokenHash(tokenHash(token));
         if (!row) throw createError(404, 'Subscription not found');

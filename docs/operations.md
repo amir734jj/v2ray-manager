@@ -161,7 +161,9 @@ The administrator's **Users** page provides:
 
 Subscription URLs have the form `https://<V2RAY_HOST>/subscriptions/<token>`.
 They return a Base64-encoded list of share links, without dashboard login.
-Tokens contain 256 random bits. The token and its SHA-256 lookup hash are
+New tokens are cryptographically generated UUID v4 values (36 characters).
+Existing 64-character hexadecimal tokens remain valid until replaced or reset.
+The token and its SHA-256 lookup hash are
 persisted so the current URL remains visible and copyable in the administrator's
 responsive user cards, including after reloads. URLs are included in administrator-only
 user lists and realtime snapshots, not public status data.
