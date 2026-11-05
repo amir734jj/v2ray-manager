@@ -49,6 +49,7 @@ export async function initializeTunnelConnections(database) {
     findByCredential: credential => Connection.findOne({ where: { credential } }),
     findBySubscriptionTokenHash: subscriptionTokenHash => Connection.findOne({ where: { subscriptionTokenHash } }),
     update: (connection, values) => connection.update(values),
+    remove: connection => connection.destroy(),
     async create(values) {
       try {
         return await Connection.create(values);

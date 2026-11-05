@@ -37,6 +37,7 @@ function SubscriptionList() {
   function change(connection, action) {
     if (action === 'reset' && !window.confirm(`Reset credentials for ${connection.name}? Existing profiles and the subscription URL will stop working.`)) return;
     if (action === 'subscription' && !window.confirm(`Replace the subscription URL for ${connection.name}? The old URL will stop updating, but existing tunnel profiles will continue working.`)) return;
+    if (action === 'delete' && !window.confirm(`Permanently delete ${connection.name}? Its subscription URL and existing profiles will stop working, and active tunnels will be closed. This cannot be undone.`)) return;
     perform(`/api/connections/${connection.id}/${action}`);
   }
 
@@ -136,6 +137,8 @@ function SubscriptionList() {
               onClick={() => change(connection, 'reset')}>Reset credentials</button>
             <button class="btn btn-sm btn-outline-primary" disabled={busy}
               onClick={() => change(connection, 'subscription')}>Replace subscription URL</button>
+            <button class="btn btn-sm btn-danger" disabled={busy}
+              onClick={() => change(connection, 'delete')}>Delete subscription</button>
         </div>
       </article>)}
     </div>}

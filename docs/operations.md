@@ -175,6 +175,10 @@ The administrator's **Subscriptions** page provides:
   Resetting a paused connection does not resume it.
 - **Replace subscription URL:** issue a new URL without changing tunnel
   credentials; the old URL stops updating, but cached profiles still work.
+- **Delete subscription:** after confirmation, disable access, close its tunnels,
+  remove credentials from all three V2Ray protocols, and permanently delete the
+  record. Its URL and cached profiles stop working. If cleanup fails, an error
+  is shown and the record stays disabled; retry deletion after resolving the error.
 
 Subscription URLs have the form `https://<V2RAY_HOST>/subscriptions/<token>`.
 They return a Base64-encoded list of share links, without dashboard login.
@@ -196,7 +200,8 @@ subscription name, tunnel credential, subscription token and hash, desired enabl
 state, and synchronization status/error. Tunnel credentials and subscription
 tokens are stored as recoverable secrets; restrict and back up this database
 accordingly. Do not delete
-connection records directly: use Pause to revoke runtime access.
+connection records directly: use Pause to revoke runtime access or Delete subscription
+to remove them safely.
 On upgrade from account-linked connections, a transaction adds names from the
 former account usernames and removes the account column, including its unique
 and foreign-key constraints. Existing record IDs, credentials, subscription
@@ -270,6 +275,7 @@ Admin-only, same-origin POST endpoints:
 - `/api/connections/:id/resume`
 - `/api/connections/:id/reset`
 - `/api/connections/:id/subscription`
+- `/api/connections/:id/delete` (returns `{ "deleted": true }` after cleanup)
 
 The old `/api/users/:id/connection` creation endpoint is removed. Use the
 admin-only `GET /api/connections` endpoint to list independent subscriptions.

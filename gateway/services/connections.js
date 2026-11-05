@@ -195,7 +195,7 @@ export function createConnectionService({ connections, api, host, disconnect, lo
     },
     change(id, action) {
       return exclusive(async () => {
-        if (!['pause', 'resume', 'reset', 'subscription'].includes(action)) throw createError(400, 'Unknown connection action');
+        if (!['pause', 'resume', 'reset', 'subscription', 'delete'].includes(action)) throw createError(400, 'Unknown connection action');
         const row = await find(id);
         const token = ['reset', 'subscription'].includes(action) ? randomUUID() : null;
         if (action === 'subscription') {
@@ -212,11 +212,17 @@ export function createConnectionService({ connections, api, host, disconnect, lo
             if (action !== 'resume') disconnect(id);
             onChange();
             await apply(row);
+            if (action === 'delete') {
+              await connections.remove(row);
+              appliedCredentials.delete(id);
+              coreCounters.delete(id);
+            }
           } finally {
             blocked.delete(id);
           }
         }
         onChange();
+        if (action === 'delete') return { deleted: true };
         return { connection: publicConnection(row), ...(token ? { subscriptionUrl: subscriptionUrl(token) } : {}) };
       });
     },
