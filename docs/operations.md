@@ -161,17 +161,22 @@ The administrator's **Users** page provides:
 
 Subscription URLs have the form `https://<V2RAY_HOST>/subscriptions/<token>`.
 They return a Base64-encoded list of share links, without dashboard login.
-Tokens contain 256 random bits; only SHA-256 token hashes are persisted.
-The raw URL is shown only in the action response and temporarily in the browser,
-not user lists or realtime snapshots. Save it when issued; if lost, replace it.
+Tokens contain 256 random bits. The token and its SHA-256 lookup hash are
+persisted so the current URL remains visible and copyable in the administrator's
+Users table, including after reloads. URLs are included in administrator-only
+user lists and realtime snapshots, not public status data.
+On upgrade, a nullable token column is added without changing existing URLs.
+Older hash-only subscriptions keep working, but their URLs cannot be recovered;
+the Users table prompts for a one-time replacement to make a new URL displayable.
 Keep subscription URLs and exported profiles private, and disable proxy access
 logging for `/subscriptions/*` and private tunnel paths. Exclude these paths
 from caching, browser challenges, and external dashboard-login requirements.
 
 Sequelize creates `gateway_tunnel_connections` in PostgreSQL. It stores the
-owning account, tunnel credential, subscription hash, desired enabled state,
-and synchronization status/error. Tunnel credentials must be recoverable to
-generate profiles; restrict and back up this database accordingly. Do not delete
+owning account, tunnel credential, subscription token and hash, desired enabled
+state, and synchronization status/error. Tunnel credentials and subscription
+tokens are stored as recoverable secrets; restrict and back up this database
+accordingly. Do not delete
 connection records directly: use Pause to revoke runtime access.
 
 Changes use V2Fly HandlerService AddUser/RemoveUser operations for each protocol.

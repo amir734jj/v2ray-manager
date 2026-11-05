@@ -39,8 +39,10 @@ Administrators can **Pause**, **Resume**, **Reset credentials**, or
 **Replace subscription URL** from **Users**. Pausing closes only that user's
 tunnels; changes are applied live without restarting V2Ray or other users.
 The same profiles work after resuming. Resetting credentials invalidates old
-profiles and issues a new subscription URL. Subscription tokens are shown only
-when issued; only their hashes are stored.
+profiles and issues a new subscription URL. Private subscription URLs remain
+visible and copyable in the administrator's Users table after reloading.
+Older connections store only a token hash: their URLs keep working, but an
+administrator must replace the URL once to make it displayable.
 
 The administrator's Users table also shows each user's open gateway tunnels,
 oldest open tunnel time, upload/download speed, and last observed socket traffic.

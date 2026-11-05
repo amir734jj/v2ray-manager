@@ -169,7 +169,8 @@ export function createConnectionService({ connections, users, api, host, disconn
         const rows = await connections.list();
         return {
           connections: rows.map(row => ({
-            ...row,
+            ...publicConnection(row),
+            subscriptionUrl: row.subscriptionToken ? subscriptionUrl(row.subscriptionToken) : null,
             coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
           })),
           error: reconciliationError,
@@ -186,7 +187,7 @@ export function createConnectionService({ connections, users, api, host, disconn
         if (await connections.findByUserId(userId)) throw createError(409, 'This user already has a connection');
         const token = randomBytes(32).toString('hex');
         const row = await connections.create({
-          id: randomUUID(), userId, credential: randomUUID(), subscriptionTokenHash: tokenHash(token),
+          id: randomUUID(), userId, credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
           enabled: true, syncStatus: 'pending',
         });
         onChange();
@@ -200,12 +201,14 @@ export function createConnectionService({ connections, users, api, host, disconn
         const row = await find(id);
         const token = ['reset', 'subscription'].includes(action) ? randomBytes(32).toString('hex') : null;
         if (action === 'subscription') {
-          await connections.update(row, { subscriptionTokenHash: tokenHash(token) });
+          await connections.update(row, { subscriptionTokenHash: tokenHash(token), subscriptionToken: token });
         } else {
           blocked.add(id);
           try {
             await connections.update(row, {
-              ...(action === 'reset' ? { credential: randomUUID(), subscriptionTokenHash: tokenHash(token) } : { enabled: action === 'resume' }),
+              ...(action === 'reset' ? {
+                credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
+              } : { enabled: action === 'resume' }),
               syncStatus: 'pending', syncError: null,
             });
             if (action !== 'resume') disconnect(id);

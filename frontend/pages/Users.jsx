@@ -18,18 +18,13 @@ function UserList() {
   const { data, error: refreshError, loading, refresh } = useResource('/api/users');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [issued, setIssued] = useState(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState(null);
 
-  async function perform(path, username) {
+  async function perform(path) {
     setBusy(true);
     setError('');
     try {
-      const { data: result } = await api.post(path);
-      if (result.subscriptionUrl) {
-        setIssued({ username, url: result.subscriptionUrl });
-        setCopied(false);
-      }
+      await api.post(path);
       await refresh();
     } catch (failure) {
       setError(errorMessage(failure));
@@ -41,16 +36,16 @@ function UserList() {
   function change(account, action) {
     if (action === 'reset' && !window.confirm(`Reset ${account.username}'s credentials? Existing profiles and the subscription URL will stop working.`)) return;
     if (action === 'subscription' && !window.confirm(`Replace ${account.username}'s subscription URL? Their old URL will stop updating, but existing tunnel profiles will continue working.`)) return;
-    if (issued?.username === account.username && ['reset', 'subscription'].includes(action)) setIssued(null);
-    perform(`/api/connections/${account.connection.id}/${action}`, account.username);
+    perform(`/api/connections/${account.connection.id}/${action}`);
   }
 
-  async function copySubscription() {
+  async function copySubscription(url) {
+    setError('');
     try {
-      await navigator.clipboard.writeText(issued.url);
-      setCopied(true);
+      await navigator.clipboard.writeText(url);
+      setCopied(url);
     } catch {
-      setError('Could not copy the subscription URL. Select and copy it from the field below.');
+      setError('Could not copy the subscription URL. Select and copy it from its field.');
     }
   }
 
@@ -60,14 +55,7 @@ function UserList() {
     {loading && <p role="status">Loading users...</p>}
     {data?.tunnelError && <div class="alert alert-danger" role="alert">{data.tunnelError}</div>}
     {data?.coreStats?.error && <div class="alert alert-warning" role="alert">{data.coreStats.error}</div>}
-    {issued && <div class="alert alert-info">
-      <label class="form-label" for="subscription-url">Private subscription URL for {issued.username}</label>
-      <input id="subscription-url" class="form-control mb-2" value={issued.url} readOnly
-        onFocus={event => event.currentTarget.select()} />
-      <p>Save this URL now. Only its hash is stored; it cannot be displayed again after leaving this page.</p>
-      <button class="btn btn-sm btn-primary me-2" onClick={copySubscription}>{copied ? 'Copied' : 'Copy URL'}</button>
-      <button class="btn btn-sm btn-secondary" onClick={() => setIssued(null)}>Dismiss</button>
-    </div>}
+    <p class="text-body-secondary">Subscription URLs contain private credentials. Share them only with their account owners.</p>
     <p class="text-body-secondary">
       Gateway counts are open sockets, not devices or proof of successful protocol authentication.
       Speeds and last observed socket traffic are sampled every five seconds and include WebSocket overhead.
@@ -82,7 +70,7 @@ function UserList() {
       {' '}Core uptime at snapshot: {data.coreStats.uptimeSeconds} seconds.
       {data.coreStats.status === 'error' && ' Displayed core totals are stale.'}
     </p>}
-    {data && <Table headings={['Username', 'Role', 'Status', 'Registered', 'Connection', 'Open tunnels', 'Connected since', 'Gateway upload', 'Gateway download', 'Last observed traffic', 'Core upload total', 'Core download total', 'Actions']}>
+    {data && <Table headings={['Username', 'Role', 'Status', 'Registered', 'Connection', 'Subscription URL', 'Open tunnels', 'Connected since', 'Gateway upload', 'Gateway download', 'Last observed traffic', 'Core upload total', 'Core download total', 'Actions']}>
       {data.users.map(account => <tr key={account.id}>
         <th scope="row">{account.username}</th><td>{account.admin ? 'Administrator' : 'Viewer'}</td>
         <td>{account.active ? 'Active' : 'Pending approval'}</td><td>{account.createdAt}</td>
@@ -90,6 +78,13 @@ function UserList() {
           <div>{account.connection.enabled ? 'Enabled' : 'Paused'} / {account.connection.syncStatus}</div>
           {account.connection.syncError && <div class="text-danger" role="alert">{account.connection.syncError}</div>}
         </> : 'Not created'}</td>
+        <td>{account.connection ? account.connection.subscriptionUrl ? <>
+          <input class="form-control mb-2" aria-label={`Private subscription URL for ${account.username}`}
+            value={account.connection.subscriptionUrl} readOnly onFocus={event => event.currentTarget.select()} />
+          <button class="btn btn-sm btn-outline-primary" onClick={() => copySubscription(account.connection.subscriptionUrl)}>
+            {copied === account.connection.subscriptionUrl ? 'Copied' : 'Copy URL'}
+          </button>
+        </> : <span>Older URL cannot be recovered. Choose Replace subscription URL once to display a new one here. The old URL will stop working.</span> : '-'}</td>
         <td>{account.connection ? account.connection.gateway.openTunnels : '-'}</td>
         <td>{account.connection ? <Timestamp value={account.connection.gateway.connectedSince} empty="No open tunnels" /> : '-'}</td>
         <td class="text-nowrap">{account.connection ? <TrafficRate value={account.connection.gateway.traffic.uploadBytesPerSecond} /> : '-'}</td>
@@ -99,9 +94,9 @@ function UserList() {
         <td class="text-nowrap">{account.connection ? <CoreBytes value={account.connection.coreTraffic?.downloadBytes ?? null} status={data.coreStats?.status} /> : '-'}</td>
         <td>
           {!account.active && <button class="btn btn-sm btn-success" disabled={busy}
-            onClick={() => perform(`/api/users/${account.id}/activate`, account.username)}>Activate</button>}
+            onClick={() => perform(`/api/users/${account.id}/activate`)}>Activate</button>}
           {account.active && !account.connection && <button class="btn btn-sm btn-primary" disabled={busy}
-            onClick={() => perform(`/api/users/${account.id}/connection`, account.username)}>Create connection</button>}
+            onClick={() => perform(`/api/users/${account.id}/connection`)}>Create connection</button>}
           {account.connection && <div class="d-flex flex-wrap gap-2">
             <button class="btn btn-sm btn-warning" disabled={busy}
               onClick={() => change(account, account.connection.enabled ? 'pause' : 'resume')}>

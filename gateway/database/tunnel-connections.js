@@ -10,15 +10,23 @@ export async function initializeTunnelConnections(database, User) {
     userId: { type: DataTypes.UUID, allowNull: false, unique: true, references: { model: User, key: 'id' } },
     credential: { type: DataTypes.UUID, allowNull: false, unique: true },
     subscriptionTokenHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    subscriptionToken: { type: DataTypes.STRING(64), allowNull: true },
     enabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     syncStatus: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'pending' },
     syncError: { type: DataTypes.STRING(256), allowNull: true },
   }, { tableName: 'gateway_tunnel_connections' });
   await Connection.sync();
+  const queryInterface = database.getQueryInterface();
+  const columns = await queryInterface.describeTable('gateway_tunnel_connections');
+  if (!columns.subscriptionToken) {
+    await queryInterface.addColumn('gateway_tunnel_connections', 'subscriptionToken', {
+      type: DataTypes.STRING(64), allowNull: true,
+    });
+  }
 
   return {
     all: () => Connection.findAll(),
-    list: () => Connection.findAll({ attributes: publicFields, order: [['createdAt', 'ASC']], raw: true }),
+    list: () => Connection.findAll({ attributes: [...publicFields, 'subscriptionToken'], order: [['createdAt', 'ASC']], raw: true }),
     findById: id => Connection.findByPk(id),
     findByUserId: userId => Connection.findOne({ where: { userId } }),
     findByCredential: credential => Connection.findOne({ where: { credential } }),
