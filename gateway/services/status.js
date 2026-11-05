@@ -85,7 +85,7 @@ function connectionTotals() {
 }
 
 export function trackConnection(transport, protocol, connection, {
-  country, ip, userAgent, userId, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
+  country, ip, userAgent, tunnelId, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
 } = {}) {
   const counter = counters.find(item => item.transport === transport && item.protocol === protocol);
   const code = typeof country === 'string' && /^(?:[A-Z]{2}|T1)$/.test(country) && country !== 'XX'
@@ -109,20 +109,20 @@ export function trackConnection(transport, protocol, connection, {
       ? userAgent.slice(0, MAX_USER_AGENT_LENGTH) : 'Unknown',
     connectedAt,
   } : null;
-  const clientTraffic = traffic.track(connection, bufferedBytes, Boolean(client), { groupId: userId, connectedAt });
+  const clientTraffic = traffic.track(connection, bufferedBytes, Boolean(client), { groupId: tunnelId, connectedAt });
   if (client) clients.set(client, clientTraffic);
   for (const row of [counter, countryCounter]) {
     row.active++;
     row.total++;
   }
   gatewayEvents.emit('status');
-  if (userId) gatewayEvents.emit('users');
+  if (tunnelId) gatewayEvents.emit('connections');
   connection.once('close', () => {
     counter.active--;
     countryCounter.active--;
     if (client) clients.delete(client);
     gatewayEvents.emit('status');
-    if (userId) gatewayEvents.emit('users');
+    if (tunnelId) gatewayEvents.emit('connections');
   });
   let failed = false;
   return () => {
@@ -190,15 +190,14 @@ export function statusSnapshot(blocklist, ipDetails) {
   return { ...snapshot(ipDetails), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
 }
 
-export async function usersSnapshot(accounts, tunnels) {
-  const users = await listAccounts(accounts);
+export async function usersSnapshot(accounts) {
+  return { users: await listAccounts(accounts) };
+}
+
+export async function connectionsSnapshot(tunnels) {
   const state = tunnels ? await tunnels.list() : { connections: [], error: 'Tunnel management is unavailable' };
-  const connections = new Map(state.connections.map(connection => [connection.userId, connection]));
   return {
-    users: users.map(user => {
-      const connection = connections.get(user.id);
-      return { ...user, connection: connection ? { ...connection, gateway: traffic.groupSnapshot(user.id) } : null };
-    }),
+    connections: state.connections.map(connection => ({ ...connection, gateway: traffic.groupSnapshot(connection.id) })),
     tunnelError: state.error,
     coreStats: state.coreStats ?? null,
   };

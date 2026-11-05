@@ -5,7 +5,10 @@ export default function Navbar({ user, pathname, onLogout }) {
     ? [
       { href: '/', label: 'Status', active: pathname === '/' || pathname === '/status' },
       { href: '/blocked-ips', label: 'Blocked IPs', active: pathname === '/blocked-ips' },
-      ...(user.admin ? [{ href: '/users', label: 'Users', active: pathname === '/users' }] : []),
+      ...(user.admin ? [
+        { href: '/subscriptions', label: 'Subscriptions', active: pathname === '/subscriptions' },
+        { href: '/users', label: 'Users', active: pathname === '/users' },
+      ] : []),
     ]
     : [
       { href: '/login', label: 'Log in', active: pathname === '/login' },

@@ -1,6 +1,6 @@
 import { col, DataTypes, fn, Op, Transaction, where } from 'sequelize';
 import createError from 'http-errors';
-import { normalizeIp } from '../services/index.js';
+import { normalizeIp } from '../services';
 
 export const MAX_BLOCKED_IPS = 1000;
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
-import { MAX_USER_AGENT_LENGTH, normalizeIp, trackConnection } from '../services/index.js';
+import { MAX_USER_AGENT_LENGTH, trackConnection } from '../services/status.js';
+import { normalizeIp } from '../services/blocklist.js';
 import { parseTunnelPath } from './paths.js';
 
 export function createTunnelHandler({
@@ -59,7 +60,6 @@ export function createTunnelHandler({
       transport: 'ws',
       protocol: tunnel.protocol,
       tunnelId: tunnel.id,
-      userId: tunnel.userId,
       connectedAt: new Date().toISOString(),
     };
     const connection = {

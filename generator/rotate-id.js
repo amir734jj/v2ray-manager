@@ -119,7 +119,7 @@ async function main() {
     console.log('Updated  v2ray-all/client.json (all protocols)\n');
   }
 
-  console.log('Managed deployments ignore these standalone profiles. Use Users to reset per-user credentials.');
+  console.log('Managed deployments ignore these standalone profiles. Use Subscriptions to reset managed credentials.');
   console.log('Local v2ray-all/server.json is not mounted by this Compose deployment.');
 }
 

@@ -3,11 +3,10 @@ import {
   createGatewayLogger, startResourceRecording, stopResourceRecording, parsePort,
   attachRealtime, createIpDetails, gatewayEvents, createConnectionService,
   createV2rayApi,
-} from './services/index.js';
-import { createGatewayProxy } from './proxy/index.js';
+} from './services';
+import { createGatewayProxy, createRouteWorkers } from './proxy';
 import { createGatewayApp } from './app.js';
-import { createDatabase } from './database/index.js';
-import { createResourceHistory } from './database/resource-history.js';
+import { createDatabase, createResourceHistory } from './database';
 
 const logger = createGatewayLogger();
 const ipDetails = createIpDetails({ logger, onChange: () => gatewayEvents.emit('status') });
@@ -31,27 +30,48 @@ try {
   throw error;
 }
 startResourceRecording(resourceHistory, logger);
-const gatewayProxy = createGatewayProxy({
-  upstreamHost,
-  ports: {
-    vless: process.env.V2RAY_VLESS_PORT ?? '53217',
-    vmess: process.env.V2RAY_VMESS_PORT ?? '53218',
-    trojan: process.env.V2RAY_TROJAN_PORT ?? '53219',
-  },
-  blocklist: storedBlocklist,
-  logger,
-  trustCloudflareHeaders: trustCloudflareHeaders === 'true',
-});
-const tunnels = createConnectionService({
-  connections,
-  users: accounts.users,
-  api: createV2rayApi(process.env.V2RAY_API_ADDRESS ?? `${upstreamHost}:10085`),
-  host: process.env.V2RAY_HOST,
-  logger,
-  onChange: () => gatewayEvents.emit('users'),
-  disconnect: gatewayProxy.disconnectTunnel,
-});
-await tunnels.start();
+let shuttingDown = false;
+let workerFailure;
+let routeWorkers;
+let gatewayProxy;
+let tunnels;
+let server;
+try {
+  routeWorkers = await createRouteWorkers({
+    upstreamHost,
+    ports: {
+      vless: process.env.V2RAY_VLESS_PORT ?? '53217',
+      vmess: process.env.V2RAY_VMESS_PORT ?? '53218',
+      trojan: process.env.V2RAY_TROJAN_PORT ?? '53219',
+    },
+    logger,
+    onError(error) {
+      workerFailure = error;
+      if (server) serverError(error);
+    },
+  });
+  gatewayProxy = createGatewayProxy({
+    upstreamHost: '127.0.0.1',
+    ports: routeWorkers.ports,
+    blocklist: storedBlocklist,
+    logger,
+    trustCloudflareHeaders: trustCloudflareHeaders === 'true',
+    logTraffic: false,
+  });
+  tunnels = createConnectionService({
+    connections,
+    api: createV2rayApi(process.env.V2RAY_API_ADDRESS ?? `${upstreamHost}:10085`),
+    host: process.env.V2RAY_HOST,
+    logger,
+    onChange: () => gatewayEvents.emit('connections'),
+    disconnect: gatewayProxy.disconnectTunnel,
+  });
+  await tunnels.start();
+  if (workerFailure) throw workerFailure;
+} catch (error) {
+  await shutdown();
+  throw error;
+}
 
 const app = createGatewayApp({
   logger,
@@ -62,7 +82,7 @@ const app = createGatewayApp({
   secureCookies: secureCookies === 'true',
   blocklist: gatewayProxy.blocklist,
 });
-const server = createServer(gatewayProxy.createHandler(app));
+server = createServer(gatewayProxy.createHandler(app));
 gatewayProxy.attach(server, { tunnels });
 
 attachRealtime(server, {
@@ -80,37 +100,40 @@ server.listen(listenPort, '0.0.0.0', () => {
   logger.info({ transport: 'ws', port: listenPort }, `WebSocket gateway listening on port ${listenPort}`);
 });
 
-let shuttingDown = false;
-function shutdown() {
+async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  gatewayProxy.stop();
-  server.close(async error => {
-    gatewayProxy.close();
-    if (error) {
-      logger.error({ err: error }, 'Gateway shutdown error');
-      process.exitCode = 1;
-    }
-    await stopResourceRecording();
-    try {
-      await tunnels.close();
-    } catch (error) {
-      logger.error({ err: error }, 'Tunnel management shutdown error');
-      process.exitCode = 1;
-    }
-    try {
-      await resourceHistory.close();
-    } catch (historyError) {
-      logger.error({ err: historyError }, 'Gateway resource history shutdown error');
-      process.exitCode = 1;
-    }
-    try {
-      await closeDatabase();
-    } catch (databaseError) {
-      logger.error({ err: databaseError }, 'Gateway PostgreSQL shutdown error');
-      process.exitCode = 1;
-    }
-  });
+  gatewayProxy?.stop();
+  if (server) {
+    await new Promise(resolve => server.close(error => {
+      if (error) {
+        logger.error({ err: error }, 'Gateway shutdown error');
+        process.exitCode = 1;
+      }
+      resolve();
+    }));
+  }
+  gatewayProxy?.close();
+  await stopResourceRecording();
+  await routeWorkers?.close();
+  try {
+    await tunnels?.close();
+  } catch (error) {
+    logger.error({ err: error }, 'Tunnel management shutdown error');
+    process.exitCode = 1;
+  }
+  try {
+    await resourceHistory.close();
+  } catch (historyError) {
+    logger.error({ err: historyError }, 'Gateway resource history shutdown error');
+    process.exitCode = 1;
+  }
+  try {
+    await closeDatabase();
+  } catch (databaseError) {
+    logger.error({ err: databaseError }, 'Gateway PostgreSQL shutdown error');
+    process.exitCode = 1;
+  }
 }
 
 process.on('SIGTERM', shutdown);

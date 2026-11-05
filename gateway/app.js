@@ -1,7 +1,7 @@
 import express from 'express';
-import { createFrontendController } from './controllers/index.js';
-import { createSubscriptionsRouter } from './proxy/index.js';
-import { createErrorHandler } from './services/index.js';
+import { createFrontendController } from './controllers';
+import { createSubscriptionsRouter } from './proxy';
+import { createErrorHandler } from './services';
 
 const statusHeaders = {
   'cache-control': 'no-store',

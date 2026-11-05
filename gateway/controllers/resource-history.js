@@ -1,6 +1,6 @@
 import express from 'express';
 import createError from 'http-errors';
-import { getResourceRecordingError } from '../services/index.js';
+import { getResourceRecordingError } from '../services';
 
 export function createResourceHistoryController({ resourceHistory, auth }) {
   const router = express.Router({ strict: true, caseSensitive: true });

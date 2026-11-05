@@ -8,7 +8,7 @@ export function createPagesController() {
   router.use('/assets', express.static(fileURLToPath(new URL('../public/assets', import.meta.url)), {
     index: false, redirect: false,
   }));
-  router.all(['/', '/status', '/login', '/register', '/blocked-ips', '/users'], (request, response) => {
+  router.all(['/', '/status', '/login', '/register', '/blocked-ips', '/users', '/subscriptions'], (request, response) => {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       response.set('Allow', 'GET, HEAD').status(405).type('text').send('Method Not Allowed\n');
       return;

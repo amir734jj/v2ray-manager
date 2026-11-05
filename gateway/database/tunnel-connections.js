@@ -1,13 +1,13 @@
 import { DataTypes } from 'sequelize';
 import createError from 'http-errors';
 
-const publicFields = ['id', 'userId', 'enabled', 'syncStatus', 'syncError', 'createdAt'];
+const publicFields = ['id', 'name', 'enabled', 'syncStatus', 'syncError', 'createdAt'];
 export const publicConnection = row => Object.fromEntries(publicFields.map(field => [field, row[field]]));
 
-export async function initializeTunnelConnections(database, User) {
+export async function initializeTunnelConnections(database) {
   const Connection = database.define('TunnelConnection', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    userId: { type: DataTypes.UUID, allowNull: false, unique: true, references: { model: User, key: 'id' } },
+    name: { type: DataTypes.STRING(128), allowNull: false },
     credential: { type: DataTypes.UUID, allowNull: false, unique: true },
     subscriptionTokenHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
     subscriptionToken: { type: DataTypes.STRING(64), allowNull: true },
@@ -18,9 +18,27 @@ export async function initializeTunnelConnections(database, User) {
   await Connection.sync();
   const queryInterface = database.getQueryInterface();
   const columns = await queryInterface.describeTable('gateway_tunnel_connections');
-  if (!columns.subscriptionToken) {
-    await queryInterface.addColumn('gateway_tunnel_connections', 'subscriptionToken', {
-      type: DataTypes.STRING(64), allowNull: true,
+  if (!columns.name || columns.userId || !columns.subscriptionToken) {
+    await database.transaction(async transaction => {
+      if (!columns.name) {
+        await queryInterface.addColumn('gateway_tunnel_connections', 'name', {
+          type: DataTypes.STRING(128), allowNull: false, defaultValue: 'Subscription',
+        }, { transaction });
+        if (columns.userId) {
+          await database.query(
+            'UPDATE "gateway_tunnel_connections" AS connection SET "name" = account."username" FROM "gateway_users" AS account WHERE connection."userId" = account."id"',
+            { transaction },
+          );
+        }
+      }
+      if (columns.userId) {
+        await queryInterface.removeColumn('gateway_tunnel_connections', 'userId', { transaction });
+      }
+      if (!columns.subscriptionToken) {
+        await queryInterface.addColumn('gateway_tunnel_connections', 'subscriptionToken', {
+          type: DataTypes.STRING(64), allowNull: true,
+        }, { transaction });
+      }
     });
   }
 
@@ -28,7 +46,6 @@ export async function initializeTunnelConnections(database, User) {
     all: () => Connection.findAll(),
     list: () => Connection.findAll({ attributes: [...publicFields, 'subscriptionToken'], order: [['createdAt', 'ASC']], raw: true }),
     findById: id => Connection.findByPk(id),
-    findByUserId: userId => Connection.findOne({ where: { userId } }),
     findByCredential: credential => Connection.findOne({ where: { credential } }),
     findBySubscriptionTokenHash: subscriptionTokenHash => Connection.findOne({ where: { subscriptionTokenHash } }),
     update: (connection, values) => connection.update(values),
@@ -37,7 +54,7 @@ export async function initializeTunnelConnections(database, User) {
         return await Connection.create(values);
       } catch (error) {
         if (error.name === 'SequelizeUniqueConstraintError') {
-          throw createError(409, 'This user already has a connection');
+          throw createError(409, 'Subscription credentials already exist; retry creation');
         }
         throw error;
       }

@@ -24,7 +24,8 @@ Keep management routes protected separately from tunnel paths in any external
 access policy.
 
 Management HTTP endpoints are under `/api`: authentication uses `/api/auth/*`,
-user management uses `/api/users`, IP controls use `/api/blocklist/*`, and the
+user management uses `/api/users`, subscription management uses `/api/connections`,
+IP controls use `/api/blocklist/*`, and the
 status snapshot is at `/api/status.json`. The old `/auth/*`, `/blocklist/*`,
 and `/status.json` paths are no longer available; update external clients and
 access policies when redeploying. Browser page routes, `/healthz`, tunnel
@@ -54,7 +55,7 @@ and the `/socket.io/` WebSocket transport are unchanged.
    `/register` over HTTPS and create the administrator account. The first
    registered user becomes the active administrator, so anyone who reaches an
    uninitialized deployment can claim this role.
-7. On **Users**, activate the account and choose **Create connection**. Save
+7. On **Subscriptions**, enter a name and choose **Create subscription**. Save
    the private subscription URL and add it in v2rayNG's subscription settings.
    Update subscriptions, then connect on **port 443**.
 
@@ -89,7 +90,7 @@ database-backed sessions. Pug is no longer used.
   header, including login, registration, logout, approval and IP changes.
 - The Socket.IO connection uses WebSocket at `/socket.io/` and requires the same
   active account cookie and a matching Origin. Status and blocklist snapshots
-  are available to active accounts; user lists are restricted to administrators.
+  are available to active accounts; user and subscription lists are restricted to administrators.
   Sessions are rechecked before updates, and logout disconnects their sockets.
   Connection errors and stale data are shown in the UI; the client reconnects
   and resubscribes after an interruption.
@@ -102,11 +103,12 @@ There are no default credentials or local-file fallback.
 
 Dashboard approval and tunnel status remain separate. Registering or activating
 an account does not automatically create tunnel credentials. Administrators
-explicitly create one connection per account; pending accounts must be activated
-first. A connection contains VLESS, VMess, and Trojan profiles.
+create independent, named subscriptions with no per-account limit and no
+dashboard-account requirement. Each subscription contains VLESS, VMess, and
+Trojan profiles.
 
 The navigation bar links to **Status**, **Blocked IPs**, and, for administrators,
-**Users**. Login and registration have their own pages. Active viewers can open
+**Subscriptions** and **Users**. Login and registration have their own pages. Active viewers can open
 the status and blocklist pages, but management actions remain administrator-only.
 
 The root npm workspace has separate frontend, gateway, and generator packages
@@ -124,6 +126,19 @@ browser assets, then runs the gateway with `oven/bun:latest` as the non-root
 the base image when rebuilding to pick up newer Bun releases. The generator
 still uses Node. The gateway healthcheck also uses Bun.
 Bun has no `lts` image tag; `latest` tracks its stable releases.
+The gateway forks three Bun proxy workers, one each for VLESS, VMess, and
+Trojan, rather than using Node's cluster module. The main process authorizes
+tunnels and forwards their streams to the appropriate worker over an
+ephemeral loopback-only port; workers proxy to V2Ray and never open database
+connections. The main process owns the single PostgreSQL pool (maximum two
+connections), accounts, blocklist, realtime clients, and history store.
+Blocking an IP or disabling a tunnel closes its main-process sockets across
+all routes. Dashboard tunnel counters and throughput still measure the
+client-facing sockets; upstream throughput logs are emitted per protocol by
+the workers. Process CPU/memory metrics describe the main process, not the
+combined worker processes. A worker failure shuts down the gateway so the
+container restart policy restarts the complete group; shutdown closes all
+workers and their tunnels. No additional ports should be published.
 For a non-Docker setup, install Node/npm for the build and Bun for the gateway:
 
 ```bash
@@ -147,12 +162,14 @@ proxy target in [frontend/vite.config.js](../frontend/vite.config.js). Both
 servers must be running; the gateway still requires PostgreSQL. Do not expose
 the HTTP development server or disable secure cookies in production.
 
-## Per-user subscriptions and live controls
+## Independent subscriptions and live controls
 
-The administrator's **Users** page provides:
+The administrator's **Subscriptions** page provides:
 
-- **Create connection:** generate unique credentials and a private subscription.
-- **Pause:** reject new tunnels and close that user's existing gateway sockets.
+- **Create subscription:** enter a 1-128 character name and generate unique
+  credentials and a private subscription. Names need not be unique. There is no
+  application-level subscription count limit.
+- **Pause:** reject new tunnels and close that subscription's existing gateway sockets.
 - **Resume:** restore access with the same profiles.
 - **Reset credentials:** invalidate old profiles and the old subscription URL.
   Resetting a paused connection does not resume it.
@@ -165,65 +182,72 @@ New tokens are cryptographically generated UUID v4 values (36 characters).
 Existing 64-character hexadecimal tokens remain valid until replaced or reset.
 The token and its SHA-256 lookup hash are
 persisted so the current URL remains visible and copyable in the administrator's
-responsive user cards, including after reloads. URLs are included in administrator-only
-user lists and realtime snapshots, not public status data.
+responsive subscription cards, including after reloads. URLs are included in administrator-only
+subscription lists and realtime snapshots, not public status data.
 On upgrade, a nullable token column is added without changing existing URLs.
 Older hash-only subscriptions keep working, but their URLs cannot be recovered;
-the Users page prompts for a one-time replacement to make a new URL displayable.
+the Subscriptions page prompts for a one-time replacement to make a new URL displayable.
 Keep subscription URLs and exported profiles private, and disable proxy access
 logging for `/subscriptions/*` and private tunnel paths. Exclude these paths
 from caching, browser challenges, and external dashboard-login requirements.
 
 Sequelize creates `gateway_tunnel_connections` in PostgreSQL. It stores the
-owning account, tunnel credential, subscription token and hash, desired enabled
+subscription name, tunnel credential, subscription token and hash, desired enabled
 state, and synchronization status/error. Tunnel credentials and subscription
 tokens are stored as recoverable secrets; restrict and back up this database
 accordingly. Do not delete
 connection records directly: use Pause to revoke runtime access.
+On upgrade from account-linked connections, a transaction adds names from the
+former account usernames and removes the account column, including its unique
+and foreign-key constraints. Existing record IDs, credentials, subscription
+tokens/hashes, and enabled states are preserved. Back up PostgreSQL before
+upgrading. Dashboard account approval is unchanged and no longer affects
+subscription creation.
 
 Changes use V2Fly HandlerService AddUser/RemoveUser operations for each protocol.
 No container restart or Docker socket is needed. A private credential-bearing
-gateway path lets the gateway close only the affected user's sockets and reject
+gateway path lets the gateway close only the affected subscription's sockets and reject
 cached profiles immediately. An empty subscription alone would not revoke access.
 The credentials and private paths are bearer secrets, not device identities.
 Expiration, quotas, and device limits are not implemented in this version.
 
 The gateway reconciles desired database state at startup and every 15 seconds,
-restoring accounts after V2Ray restarts. Failed updates return HTTP 503 and show
-an error in Users; affected connections remain blocked until a retry succeeds.
+restoring credentials after V2Ray restarts. Failed updates return HTTP 503 and show
+an error in Subscriptions; affected connections remain blocked until a retry succeeds.
 A failed action may have saved its desired state, so inspect its status before
 retrying. Only one gateway may manage a V2Ray instance; multi-instance
 coordination is not supported.
 
-### Per-user activity and core accounting
+### Per-subscription activity and core accounting
 
-The administrator's Users table and `/api/users`/Socket.IO user snapshots expose
+The administrator's subscription cards and `/api/connections`/Socket.IO `connections` snapshots expose
 two separate measurements:
 
-- `connection.gateway.openTunnels`: every currently open gateway socket for
-  that account, including sockets beyond the Status page's 1,000-detail limit.
+- `connections[].gateway.openTunnels`: every currently open gateway socket for
+  that subscription, including sockets beyond the Status page's 1,000-detail limit.
   One device may open many sockets. These counts are not device counts and do
   not establish that the protocol handshake succeeded.
-- `connection.gateway.connectedSince`: the oldest currently open socket's
+- `connections[].gateway.connectedSince`: the oldest currently open socket's
   connection time, or null when no sockets are open. Closing that oldest socket
   advances this timestamp to the next oldest.
-- `connection.gateway.traffic`: socket upload/download bytes and rates from
+- `connections[].gateway.traffic`: socket upload/download bytes and rates from
   the shared five-second sampler. Upload is client to gateway; download is
   gateway to client. Rates include recently closed sockets in the sampling
   interval and include WebSocket framing/handshake overhead.
-- `connection.gateway.lastTrafficAt`: when a sample or socket close last
+- `connections[].gateway.lastTrafficAt`: when a sample or socket close last
   observed a byte-counter change. It is an observation timestamp, not an exact
   packet timestamp or proof of authenticated application traffic. It remains
   visible after all sockets close, until the gateway restarts.
-- `connection.coreTraffic`: authenticated V2Ray `uploadBytes`/`downloadBytes`
+- `connections[].coreTraffic`: authenticated V2Ray `uploadBytes`/`downloadBytes`
   totals, aggregated across VLESS, VMess, and Trojan using the connection's
-  stable internal user identifier. Byte totals are decimal strings in the API
+  stable internal subscription identifier. Byte totals are decimal strings in the API
   to preserve 64-bit precision; the UI formats them in binary units.
 
 Gateway ownership is determined by the private path; V2Ray accounting is
 determined by the protocol credential. They are separate attribution mechanisms,
 not independent proof of a physical user's identity. Only administrators receive
-the per-user activity and accounting snapshots.
+the per-subscription activity and accounting snapshots. `/api/users` and the
+Socket.IO `users` resource contain dashboard accounts only.
 
 Managed configuration enables `StatsService`, the stats manager, and level-zero
 `statsUserUplink`/`statsUserDownlink` policies. Redeploy `init` and V2Ray when
@@ -236,16 +260,19 @@ has been collected. Statistics failures do not pause working connections.
 
 Core totals reset when V2Ray restarts, not when the gateway restarts or credentials
 are reset. They are not persisted usage history, lifetime billing totals, quotas,
-or online-user/device counts. Gateway per-user metrics are in memory only, use
-the existing shared sampler, and do not add per-user timers or history storage.
+or online-user/device counts. Gateway per-subscription metrics are in memory only, use
+the existing shared sampler, and do not add per-subscription timers or history storage.
 
 Admin-only, same-origin POST endpoints:
 
-- `/api/users/:id/connection`
+- `/api/connections` with JSON body `{ "name": "Subscription name" }`
 - `/api/connections/:id/pause`
 - `/api/connections/:id/resume`
 - `/api/connections/:id/reset`
 - `/api/connections/:id/subscription`
+
+The old `/api/users/:id/connection` creation endpoint is removed. Use the
+admin-only `GET /api/connections` endpoint to list independent subscriptions.
 
 For local development set `V2RAY_HOST` to the public hostname and
 `V2RAY_API_ADDRESS` to the reachable internal gRPC address (default:
@@ -271,7 +298,7 @@ npm run rotate -- ws.hesamian.com --uuid <uuid>
 ```
 
 This writes standalone local server/client configs and protocol exports.
-It does not change deployed per-user connections. Use Users to reset those.
+It does not change deployed subscriptions. Use Subscriptions to reset those.
 Existing local configs must already use WebSocket; regenerate old configs
 from templates if necessary.
 
@@ -350,7 +377,7 @@ from templates if necessary.
   displayed connections and updated in place by the shared sampler. There are
   no per-client timers or speed histories; closing a connection releases its
   detail state. Omitted client sockets retain owner/time and sampling baselines
-  for per-user aggregates, but not individual speed details. Upstream sockets
+  for per-subscription aggregates, but not individual speed details. Upstream sockets
   keep only aggregate byte-counter baselines.
   The selected group stays expanded across refreshes. `/api/status.json` provides
   both grouped summaries and individual connections. At most **1,000 active
@@ -419,22 +446,23 @@ Per-user credentials identify access to a connection, not individual devices.
 The list is limited to **1,000 IPs**, with no automatic eviction. Sequelize
 uses PostgreSQL to store it in `gateway_ip_blocklist` via `DATABASE_URL`; the database role
 needs permission to create, alter, and update that table. There is no local-file fallback.
-Database initialization is in [gateway/database/index.js](../gateway/database/index.js).
+Database initialization is in [gateway/database/connection.js](../gateway/database/connection.js).
 Each entity owns its model and database operations in
 [gateway/database](../gateway/database): `users.js`, `sessions.js`,
 `blocked-ips.js`, and `tunnel-connections.js`. LevelDB metrics storage is in
 `resource-history.js` in the same folder. Authentication and tunnel-control
 services use these repositories rather than issuing database queries directly.
-Gateway services live in [gateway/services](../gateway/services), with public
-exports collected in [gateway/services/index.js](../gateway/services/index.js)
-for imports outside that folder. Services import siblings directly to avoid
-barrel-import cycles. The server and health-check entrypoints remain in `gateway`.
-HTTP routes are grouped by resource in [gateway/controllers](../gateway/controllers),
-with public exports in [gateway/controllers/index.js](../gateway/controllers/index.js).
+Gateway services live in [gateway/services](../gateway/services).
+Public folder entry points collect exports for extensionless directory imports
+such as `import { normalizeIp } from '../services'`. Bun resolves these imports
+to the folder's `index.js`; native Node.js ESM does not support this syntax.
+Sibling imports and lightweight proxy-worker dependencies remain direct to avoid
+barrel-import cycles and loading unrelated services into workers.
+The server and health-check entrypoints remain in `gateway`.
+HTTP routes are grouped by resource in [gateway/controllers](../gateway/controllers).
 Controllers serve the frontend pages and dashboard APIs; services retain
 authentication, account operations, V2Ray management, and shared metrics.
-Proxy transport lives in [gateway/proxy](../gateway/proxy), with public exports
-in [gateway/proxy/index.js](../gateway/proxy/index.js). It owns upstream routing,
+Proxy transport lives in [gateway/proxy](../gateway/proxy). It owns upstream routing,
 WebSocket upgrades, socket tracking/disconnection, proxy errors, throughput
 logging, and the subscription endpoint used by V2Ray clients.
 [gateway/app.js](../gateway/app.js) composes the frontend and subscription routes

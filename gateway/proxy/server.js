@@ -1,11 +1,11 @@
 import httpProxy from 'http-proxy-3';
-import { parsePort } from '../services/index.js';
+import { parsePort } from '../services/config.js';
 import { createGatewayHandler } from './gateway.js';
 import { createTunnelHandler } from './tunnels.js';
 import { disconnectTunnelSockets } from './sockets.js';
 import { logUpstreamTraffic } from './upstream-traffic.js';
 
-export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, trustCloudflareHeaders = false }) {
+export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, trustCloudflareHeaders = false, logTraffic = true }) {
   const routes = new Map(Object.entries(ports).map(([protocol, port]) => [
     `/${protocol}`, `http://${upstreamHost}:${parsePort(port, `/${protocol} upstream port`)}`,
   ]));
@@ -52,7 +52,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
     },
     createHandler: app => createGatewayHandler({ app, routes }),
     attach(server, { tunnels }) {
-      stopUpstreamTraffic = logUpstreamTraffic(proxy, logger);
+      if (logTraffic) stopUpstreamTraffic = logUpstreamTraffic(proxy, logger);
       server.on('upgrade', createTunnelHandler({
         tunnels, routes, blocklist, logger, sockets, wsConnections, proxy, trustCloudflareHeaders,
       }));

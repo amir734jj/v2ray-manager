@@ -35,7 +35,7 @@ try {
 
 // ── Generate client folders & upload to FTP ─────────────────────────────────
 if (managed && FTP_HOST) {
-  console.warn('WARNING: shared FTP exports are disabled in managed mode; issue private subscriptions from Users.');
+  console.warn('WARNING: shared FTP exports are disabled in managed mode; issue private subscriptions from Subscriptions.');
 }
 if (FTP_HOST && !managed) {
 

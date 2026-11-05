@@ -1,12 +1,16 @@
 import express from 'express';
 import createError from 'http-errors';
-import { sameOrigin } from '../services/index.js';
+import { connectionsSnapshot, sameOrigin } from '../services';
 
 export function createConnectionsController({ tunnels, auth }) {
   const router = express.Router({ strict: true, caseSensitive: true });
-  router.post('/api/users/:id/connection', auth.requireUser, auth.requireAdmin, sameOrigin, async (request, response) => {
+  router.get('/api/connections', auth.requireUser, auth.requireAdmin, async (_request, response) => {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
-    response.status(201).json(await tunnels.create(request.params.id));
+    response.json(await connectionsSnapshot(tunnels));
+  });
+  router.post('/api/connections', auth.requireUser, auth.requireAdmin, sameOrigin, express.json({ limit: '2kb' }), async (request, response) => {
+    if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
+    response.status(201).json(await tunnels.create(request.body?.name));
   });
   router.post('/api/connections/:id/:action', auth.requireUser, auth.requireAdmin, sameOrigin, async (request, response) => {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');

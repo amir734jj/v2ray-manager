@@ -1,6 +1,6 @@
 import express from 'express';
 import createError from 'http-errors';
-import { gatewayEvents, sameOrigin } from '../services/index.js';
+import { gatewayEvents, sameOrigin } from '../services';
 
 export function createBlocklistController({ blocklist, auth }) {
   const router = express.Router({ strict: true, caseSensitive: true });

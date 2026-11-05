@@ -1,5 +1,5 @@
 import express from 'express';
-import { createAuth } from '../services/index.js';
+import { createAuth } from '../services';
 import { createAuthController } from './auth.js';
 import { createUsersController } from './users.js';
 import { createConnectionsController } from './connections.js';
@@ -13,7 +13,7 @@ export function createFrontendController({ blocklist, accounts, tunnels, resourc
   const auth = createAuth({ accounts, secureCookies });
   router.use(auth.initialize);
   router.use('/api/auth', createAuthController({ accounts, auth, secureCookies }));
-  router.use(createUsersController({ accounts, tunnels, auth }));
+  router.use(createUsersController({ accounts, auth }));
   router.use(createConnectionsController({ tunnels, auth }));
   router.use(createBlocklistController({ blocklist, auth }));
   router.use(createStatusController({ blocklist, ipDetails, auth }));

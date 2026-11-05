@@ -4,7 +4,7 @@ import createError from 'http-errors';
 import {
   createSession, getSessionToken, registerAccount, revokeSession, sameOrigin,
   SESSION_SECONDS, gatewayEvents,
-} from '../services/index.js';
+} from '../services';
 
 export function createAuthController({ accounts, auth, secureCookies = true }) {
   const router = express.Router();

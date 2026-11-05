@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import { authenticateSession } from './accounts.js';
 import { getSessionToken, isSameOrigin } from './auth.js';
 import { gatewayEvents } from './events.js';
-import { statusSnapshot, usersSnapshot } from './status.js';
+import { connectionsSnapshot, statusSnapshot, usersSnapshot } from './status.js';
 
 export function attachRealtime(server, { accounts, tunnels, blocklist, secureCookies, logger, ipDetails }) {
   const io = new Server(server, {
@@ -18,7 +18,8 @@ export function attachRealtime(server, { accounts, tunnels, blocklist, secureCoo
   };
   const onStatus = () => notify('status');
   const onUsers = () => notify('users');
-  const onHeartbeat = () => notify('users');
+  const onConnections = () => notify('connections');
+  const onHeartbeat = onConnections;
   const onRevoked = token => {
     for (const client of clients) {
       if (client.token === token) client.expire();
@@ -26,11 +27,13 @@ export function attachRealtime(server, { accounts, tunnels, blocklist, secureCoo
   };
   gatewayEvents.on('status', onStatus);
   gatewayEvents.on('users', onUsers);
+  gatewayEvents.on('connections', onConnections);
   gatewayEvents.on('heartbeat', onHeartbeat);
   gatewayEvents.on('session-revoked', onRevoked);
   server.once('close', () => {
     gatewayEvents.off('status', onStatus);
     gatewayEvents.off('users', onUsers);
+    gatewayEvents.off('connections', onConnections);
     gatewayEvents.off('heartbeat', onHeartbeat);
     gatewayEvents.off('session-revoked', onRevoked);
   });
@@ -98,14 +101,14 @@ export function attachRealtime(server, { accounts, tunnels, blocklist, secureCoo
         }
         for (const resource of resources) {
           if (!subscriptions.has(resource)) continue;
-          if (resource === 'users' && !user.admin) {
+          if (resource !== 'status' && !user.admin) {
             subscriptions.delete(resource);
             socket.emit('resource-error', { resource, message: 'Administrator access is required' });
             continue;
           }
-          const data = resource === 'status'
-            ? statusSnapshot(blocklist, ipDetails)
-            : await usersSnapshot(accounts, tunnels);
+          const data = resource === 'status' ? statusSnapshot(blocklist, ipDetails)
+            : resource === 'users' ? await usersSnapshot(accounts)
+              : await connectionsSnapshot(tunnels);
           if (socket.connected && subscriptions.has(resource)) socket.emit('resource', { resource, data });
         }
       } catch (error) {
@@ -127,7 +130,7 @@ export function attachRealtime(server, { accounts, tunnels, blocklist, secureCoo
     }
 
     socket.on('subscribe', resource => {
-      if (!['status', 'users'].includes(resource)) {
+      if (!['status', 'users', 'connections'].includes(resource)) {
         socket.emit('resource-error', {
           resource: typeof resource === 'string' ? resource : '',
           message: 'Unknown realtime resource',

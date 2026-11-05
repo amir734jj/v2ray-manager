@@ -11,6 +11,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import Status from './pages/Status.jsx';
 import Users from './pages/Users.jsx';
+import Subscriptions from './pages/Subscriptions.jsx';
 import { RealtimeContext } from './realtime.js';
 
 function Protected({ user, children }) {
@@ -141,6 +142,7 @@ function App() {
           <Protected path="/status" user={user}><Status user={user} /></Protected>
           <Protected path="/blocked-ips" user={user}><BlockedIps user={user} /></Protected>
           <Protected path="/users" user={user}><Users user={user} /></Protected>
+          <Protected path="/subscriptions" user={user}><Subscriptions user={user} /></Protected>
           <PublicOnly path="/login" user={user}><Login onLogin={login} notice={notice} /></PublicOnly>
           <PublicOnly path="/register" user={user}><Register onRegistered={registered} /></PublicOnly>
           <section default><h1>Page not found</h1><Link href="/">Go to status</Link></section>

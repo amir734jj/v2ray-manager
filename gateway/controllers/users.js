@@ -1,10 +1,10 @@
 import express from 'express';
-import { activateAccount, gatewayEvents, sameOrigin, usersSnapshot } from '../services/index.js';
+import { activateAccount, gatewayEvents, sameOrigin, usersSnapshot } from '../services';
 
-export function createUsersController({ accounts, tunnels, auth }) {
+export function createUsersController({ accounts, auth }) {
   const router = express.Router({ strict: true, caseSensitive: true });
   router.get('/api/users', auth.requireUser, auth.requireAdmin, async (_request, response) => {
-    response.json(await usersSnapshot(accounts, tunnels));
+    response.json(await usersSnapshot(accounts));
   });
   router.post('/api/users/:id/activate', auth.requireUser, auth.requireAdmin, sameOrigin, async (request, response) => {
     const user = await activateAccount(accounts, request.params.id);

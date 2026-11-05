@@ -19,7 +19,7 @@ export function subscriptionContent(connection, host) {
   return Buffer.from(Object.values(createConnectionUrls(config, host)).join('\n') + '\n').toString('base64');
 }
 
-export function createConnectionService({ connections, users, api, host, disconnect, logger, onChange = () => {} }) {
+export function createConnectionService({ connections, api, host, disconnect, logger, onChange = () => {} }) {
   validateHost(host);
   let queue = Promise.resolve();
   let stopping = false;
@@ -178,16 +178,14 @@ export function createConnectionService({ connections, users, api, host, disconn
         };
       });
     },
-    create(userId) {
+    create(name) {
       return exclusive(async () => {
-        if (!uuidPattern.test(userId)) throw createError(400, 'Invalid user ID');
-        const owner = await users.findById(userId);
-        if (!owner) throw createError(404, 'User not found');
-        if (!owner.active) throw createError(409, 'Activate the dashboard account before creating its connection');
-        if (await connections.findByUserId(userId)) throw createError(409, 'This user already has a connection');
+        if (typeof name !== 'string' || !name.trim() || name.trim().length > 128) {
+          throw createError(400, 'Subscription name must contain 1-128 characters');
+        }
         const token = randomUUID();
         const row = await connections.create({
-          id: randomUUID(), userId, credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
+          id: randomUUID(), name: name.trim(), credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
           enabled: true, syncStatus: 'pending',
         });
         onChange();
@@ -228,7 +226,7 @@ export function createConnectionService({ connections, users, api, host, disconn
       return guarded(async () => {
         const row = await connections.findByCredential(parsed.credential);
         if (!row || !row.enabled || row.syncStatus !== 'applied' || blocked.has(row.id)) return null;
-        return { id: row.id, userId: row.userId, protocol: parsed.protocol };
+        return { id: row.id, protocol: parsed.protocol };
       });
     },
     async subscription(token) {

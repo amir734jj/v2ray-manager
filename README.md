@@ -7,6 +7,10 @@ Cloudflare and Coolify.
 Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 ```
 
+The Bun gateway starts one dedicated proxy process per protocol (VLESS, VMess,
+and Trojan). Authentication, blocking, dashboard state, and a single PostgreSQL
+pool capped at two connections remain in the main process.
+
 ## Deploy
 
 1. Deploy [docker-compose.yaml](./docker-compose.yaml) in Coolify with:
@@ -26,17 +30,22 @@ Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 4. Restrict access to the management page, then open `/register` over HTTPS.
    **The first registrant becomes the administrator.** Later accounts need
    administrator approval.
-5. On **Users**, activate an account and choose **Create connection**. Save its
+5. On **Subscriptions**, enter a name and choose **Create subscription**. Save its
    private subscription URL, add it in v2rayNG, and update subscriptions.
    Clients connect on port **443**.
 
-Tunnel access uses per-user private paths and credentials, not dashboard cookies.
+Tunnel access uses subscription-specific private paths and credentials, not dashboard cookies.
 Do not expose V2Ray's internal ports or its unauthenticated management API.
 
-## Per-user connections
+## Independent subscriptions
+
+Administrators can create as many named subscriptions as needed, without
+creating or activating dashboard accounts. **Users** manages dashboard access
+only. Each subscription has its own credentials, URL, controls, and traffic
+statistics across VLESS, VMess, and Trojan.
 
 Administrators can **Pause**, **Resume**, **Reset credentials**, or
-**Replace subscription URL** from **Users**. Pausing closes only that user's
+**Replace subscription URL** from **Subscriptions**. Pausing closes only that subscription's
 tunnels; changes are applied live without restarting V2Ray or other users.
 The same profiles work after resuming. Resetting credentials invalidates old
 profiles and issues a new subscription URL. Private subscription URLs remain
@@ -44,7 +53,11 @@ visible and copyable in the administrator's responsive user cards after reloadin
 Older connections store only a token hash: their URLs keep working, but an
 administrator must replace the URL once to make it displayable.
 
-The administrator's Users page also shows each user's open gateway tunnels,
+Existing account-linked subscriptions are migrated automatically to independent
+subscriptions named after their former account. Their credentials and URLs stay
+valid; back up PostgreSQL before upgrading.
+
+The administrator's Subscriptions page also shows each subscription's open gateway tunnels,
 oldest open tunnel time, upload/download speed, and last observed socket traffic.
 These are socket measurements, not device counts or proof of authentication.
 Separate V2Ray totals show traffic attributed to authenticated credentials since
@@ -98,7 +111,7 @@ npm run rotate -- <public-hostname> --uuid <uuid>
 ```
 
 This generates standalone local profiles, not managed subscriptions. It does
-not modify deployed per-user credentials. Use **Reset credentials** on **Users**
+not modify deployed subscription credentials. Use **Reset credentials** on **Subscriptions**
 for managed connections.
 
 For security, troubleshooting, storage, and configuration details, see the
