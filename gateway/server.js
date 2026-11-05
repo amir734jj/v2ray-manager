@@ -74,7 +74,6 @@ const protocols = {
   '/vless': process.env.V2RAY_VLESS_PORT ?? '53217',
   '/vmess': process.env.V2RAY_VMESS_PORT ?? '53218',
   '/trojan': process.env.V2RAY_TROJAN_PORT ?? '53219',
-  '/shadowsocks': process.env.V2RAY_SHADOWSOCKS_PORT ?? '53220',
 };
 function createRoutes(entries) {
   return new Map(

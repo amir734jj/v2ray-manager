@@ -1,6 +1,6 @@
 # V2Ray Manager
 
-Manage VLESS, VMess, Trojan, and Shadowsocks connections over WebSocket behind
+Manage VLESS, VMess, and Trojan connections over WebSocket behind
 Cloudflare and Coolify.
 
 ```text
@@ -36,11 +36,6 @@ V2Ray validates tunnel credentials separately.
 
 Set `FTP_HOST`, `FTP_USER`, `FTP_PASS`, and optionally `FTP_PATH` to upload
 each protocol's `client.json`, `connection.txt`, and `qr.png`.
-
-For **Shadowsocks in v2rayNG**, import the generated
-`shadowsocks/client.json` as a custom configuration, not the share link.
-Shadowsocks is TCP-only; the profile tunnels DNS but does not support general
-UDP or QUIC. See [Shadowsocks details](./docs/operations.md#shadowsocks-in-v2rayng).
 
 ## Dashboard and history
 

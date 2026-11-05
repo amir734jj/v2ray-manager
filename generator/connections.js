@@ -1,6 +1,6 @@
 import { createOutbound, createConnectionUrl } from 'v2ray-tools';
 
-export const protocols = ['vless', 'vmess', 'trojan', 'shadowsocks'];
+export const protocols = ['vless', 'vmess', 'trojan'];
 
 export function validateHost(host) {
   if (!host || host === 'YOUR_SERVER_IP') {
@@ -14,6 +14,7 @@ export function validateHost(host) {
 }
 
 export function configureServerTransports(config) {
+  config.inbounds = config.inbounds.filter(inbound => inbound.protocol !== 'shadowsocks');
   for (const protocol of protocols) {
     const inbound = config.inbounds.find(item => item.protocol === protocol && item.streamSettings?.network === 'ws');
     if (!inbound) throw new Error(`Missing ${protocol} ws inbound; use the WebSocket server template`);
@@ -22,7 +23,6 @@ export function configureServerTransports(config) {
       security: 'none',
       wsSettings: { path: `/${protocol}` },
     };
-    if (protocol === 'shadowsocks') inbound.settings.network = 'tcp';
   }
   return config;
 }
@@ -56,56 +56,9 @@ export function configureClient(config, serverConfig, host) {
   if (existing.some(outbound => outbound.streamSettings?.network !== 'ws')) {
     throw new Error('Client proxy outbounds must use WebSocket; regenerate from templates');
   }
-  config.outbounds = config.outbounds.map(outbound => protocols.includes(outbound.protocol)
+  config.outbounds = config.outbounds.filter(outbound => outbound.protocol !== 'shadowsocks').map(outbound => protocols.includes(outbound.protocol)
     ? createOutbound({ ...connectionOptions(serverConfig, outbound.protocol, host), tag: outbound.tag })
     : outbound);
-
-  if (existing.length === 1 && existing[0].protocol === 'shadowsocks') {
-    const socksTag = 'shadowsocks-socks';
-    const dnsTag = 'shadowsocks-dns';
-    const queryTag = 'shadowsocks-dns-query';
-    const blockedTag = 'shadowsocks-udp-blocked';
-    const proxyTag = config.outbounds.find(outbound => outbound.protocol === 'shadowsocks').tag;
-    const socksTags = [];
-    for (const inbound of config.inbounds ?? []) {
-      if (inbound.protocol === 'socks') {
-        inbound.tag ??= socksTag;
-        socksTags.push(inbound.tag);
-        inbound.settings = { ...inbound.settings, udp: true };
-      }
-    }
-    config.dns = {
-      servers: [
-        {
-          address: 'https+local://1.1.1.1/dns-query',
-          domains: [`full:${host}`],
-          skipFallback: true,
-        },
-        'tcp://1.1.1.1',
-      ],
-      tag: queryTag,
-      disableFallbackIfMatch: true,
-    };
-    config.outbounds = config.outbounds.filter(outbound => ![dnsTag, blockedTag].includes(outbound.tag));
-    config.outbounds.push(
-      {
-        tag: dnsTag,
-        protocol: 'dns',
-        settings: { network: 'tcp', address: '1.1.1.1', port: 53 },
-        proxySettings: { tag: proxyTag },
-      },
-      { tag: blockedTag, protocol: 'blackhole' },
-    );
-    config.routing ??= {};
-    const rules = (config.routing.rules ?? []).filter(rule =>
-      ![dnsTag, blockedTag].includes(rule.outboundTag) && !rule.inboundTag?.includes(queryTag));
-    config.routing.rules = [
-      { type: 'field', inboundTag: [queryTag], outboundTag: proxyTag },
-      { type: 'field', inboundTag: socksTags, network: 'tcp,udp', port: '53', outboundTag: dnsTag },
-      { type: 'field', inboundTag: socksTags, network: 'udp', outboundTag: blockedTag },
-      ...rules,
-    ];
-  }
 
   return config;
 }

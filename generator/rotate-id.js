@@ -57,10 +57,6 @@ async function main() {
       if (client.id)       client.id       = newId;
       if (client.password) client.password = newId;
     }
-    // Shadowsocks has password at settings level, not in clients array
-    if (inbound.protocol === 'shadowsocks' && inbound.settings?.password) {
-      inbound.settings.password = newId;
-    }
   }
   const updatedServer = JSON.stringify(serverJson, null, 2) + '\n';
   await mkdir(dirname(serverPath), { recursive: true });
@@ -77,7 +73,6 @@ async function main() {
     { dir: 'vless',       label: 'VLESS',       wsUrl: urls.vless },
     { dir: 'vmess',       label: 'VMess',       wsUrl: urls.vmess },
     { dir: 'trojan',      label: 'Trojan',      wsUrl: urls.trojan },
-    { dir: 'shadowsocks', label: 'Shadowsocks', wsUrl: urls.shadowsocks },
   ];
 
   // --- Write connection files, QR images & print QR codes --------------------

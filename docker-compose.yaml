@@ -57,7 +57,6 @@ services:
       - "53217"
       - "53218"
       - "53219"
-      - "53220"
     volumes:
       - v2ray-cfg:/cfg
     entrypoint: ["/bin/sh", "-c"]
@@ -76,7 +75,7 @@ services:
         echo "Config found, starting v2ray"
         exec v2ray run -config /cfg/server.json
     healthcheck:
-      test: ["CMD-SHELL", "kill -0 1 || exit 1; for port in 53217 53218 53219 53220; do netstat -lnt | grep -qE \":$$port[[:space:]].*LISTEN\" || exit 1; done"]
+      test: ["CMD-SHELL", "kill -0 1 || exit 1; for port in 53217 53218 53219; do netstat -lnt | grep -qE \":$$port[[:space:]].*LISTEN\" || exit 1; done"]
       interval: 30s
       timeout: 5s
       retries: 3

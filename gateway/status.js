@@ -70,7 +70,7 @@ setInterval(() => {
   gatewayEvents.emit('status');
   gatewayEvents.emit('heartbeat');
 }, 5000).unref();
-const counters = ['vless', 'vmess', 'trojan', 'shadowsocks'].map(protocol => ({
+const counters = ['vless', 'vmess', 'trojan'].map(protocol => ({
   transport: 'ws', protocol, active: 0, total: 0, errors: 0,
 }));
 const countries = new Map();
