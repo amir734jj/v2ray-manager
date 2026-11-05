@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Rotates the shared UUID across all v2ray server configs,
+ * Rotates the shared UUID across standalone local v2ray server configs,
  * regenerates connection URLs, and prints QR codes to the terminal.
  *
  * Usage:
@@ -61,7 +61,7 @@ async function main() {
   const updatedServer = JSON.stringify(serverJson, null, 2) + '\n';
   await mkdir(dirname(serverPath), { recursive: true });
   await writeFile(serverPath, updatedServer);
-  console.log(`New ID: ${newId}  ← set this as V2RAY_UUID in Coolify`);
+  console.log(`New standalone ID: ${newId}`);
   console.log('Updated  v2ray-all/server.json\n');
 
   const config = serverJson;
@@ -119,7 +119,7 @@ async function main() {
     console.log('Updated  v2ray-all/client.json (all protocols)\n');
   }
 
-  console.log('For Coolify, set V2RAY_UUID and redeploy to regenerate the persistent config.');
+  console.log('Managed deployments ignore these standalone profiles. Use Users to reset per-user credentials.');
   console.log('Local v2ray-all/server.json is not mounted by this Compose deployment.');
 }
 

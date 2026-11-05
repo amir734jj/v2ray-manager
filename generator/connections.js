@@ -27,6 +27,25 @@ export function configureServerTransports(config) {
   return config;
 }
 
+export function configureManagedServer(config) {
+  configureServerTransports(config);
+  for (const inbound of config.inbounds.filter(item => protocols.includes(item.protocol))) {
+    inbound.settings.clients = [];
+  }
+  config.api = { tag: 'management-api', services: ['HandlerService'] };
+  config.inbounds.push({
+    tag: 'management-api-inbound',
+    listen: '0.0.0.0',
+    port: 10085,
+    protocol: 'dokodemo-door',
+    settings: { address: '127.0.0.1' },
+  });
+  config.routing.rules.unshift({
+    type: 'field', inboundTag: ['management-api-inbound'], outboundTag: 'management-api',
+  });
+  return config;
+}
+
 function connectionOptions(serverConfig, protocol, host) {
   const inbound = serverConfig.inbounds.find(
     item => item.protocol === protocol && item.streamSettings?.network === 'ws',

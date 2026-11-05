@@ -12,30 +12,39 @@ Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 1. Deploy [docker-compose.yaml](./docker-compose.yaml) in Coolify with:
 
    ```text
-   V2RAY_UUID=<shared credential>
    V2RAY_HOST=<public hostname>
    DATABASE_URL=<PostgreSQL connection URL>
    ```
 
-   PostgreSQL stores management accounts, sessions, and blocked IPs. Its user
+   PostgreSQL stores management accounts, sessions, tunnel connections, and blocked IPs. Its user
    needs permission to create and update tables and indexes.
 2. Attach your public hostname to **gateway port 53217** with WebSocket
    upgrades. Do not attach it to `init` or `v2ray`.
 3. Enable Cloudflare proxying and WebSockets. Use **Full (strict)** TLS with
-   a valid origin certificate, and exclude tunnel paths and `/socket.io/`
+   a valid origin certificate, and exclude tunnel paths, `/subscriptions/`, and `/socket.io/`
    from caching and interactive challenges.
 4. Restrict access to the management page, then open `/register` over HTTPS.
    **The first registrant becomes the administrator.** Later accounts need
    administrator approval.
-5. Import your generated client profiles and connect on port **443**.
+5. On **Users**, activate an account and choose **Create connection**. Save its
+   private subscription URL, add it in v2rayNG, and update subscriptions.
+   Clients connect on port **443**.
 
-Management accounts protect the dashboard, not the public tunnel paths.
-V2Ray validates tunnel credentials separately.
+Tunnel access uses per-user private paths and credentials, not dashboard cookies.
+Do not expose V2Ray's internal ports or its unauthenticated management API.
 
-## Client profiles
+## Per-user connections
 
-Set `FTP_HOST`, `FTP_USER`, `FTP_PASS`, and optionally `FTP_PATH` to upload
-each protocol's `client.json`, `connection.txt`, and `qr.png`.
+Administrators can **Pause**, **Resume**, **Reset credentials**, or
+**Replace subscription URL** from **Users**. Pausing closes only that user's
+tunnels; changes are applied live without restarting V2Ray or other users.
+The same profiles work after resuming. Resetting credentials invalidates old
+profiles and issues a new subscription URL. Subscription tokens are shown only
+when issued; only their hashes are stored.
+
+The deployment no longer accepts `V2RAY_UUID` or shared FTP profiles. Existing
+clients need new private subscriptions after upgrading. Remove old FTP exports
+manually. Expiration and device limits are not implemented yet.
 
 ## Dashboard and history
 
@@ -61,7 +70,8 @@ Install Node.js LTS, npm, Bun, and PostgreSQL:
 ```bash
 npm ci
 npm run build
-# Set DATABASE_URL and GATEWAY_SECURE_COOKIES=false for local HTTP.
+# Set DATABASE_URL, V2RAY_HOST, V2RAY_API_ADDRESS, and
+# GATEWAY_SECURE_COOKIES=false for local HTTP.
 bun gateway/server.js
 ```
 
@@ -69,7 +79,7 @@ For frontend development, run `npm run dev` in another terminal. Keep secure
 cookies enabled in production. The repository uses npm workspaces for the
 frontend, gateway, and generator.
 
-## Rotate credentials
+## Offline profile generation
 
 ```bash
 npm run rotate -- <public-hostname>
@@ -77,8 +87,9 @@ npm run rotate -- <public-hostname>
 npm run rotate -- <public-hostname> --uuid <uuid>
 ```
 
-This generates local profiles. Set the UUID in Coolify and **redeploy** to
-apply it to the deployed server.
+This generates standalone local profiles, not managed subscriptions. It does
+not modify deployed per-user credentials. Use **Reset credentials** on **Users**
+for managed connections.
 
 For security, troubleshooting, storage, and configuration details, see the
 [operations reference](./docs/operations.md).

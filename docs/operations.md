@@ -10,14 +10,16 @@ Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 
 | Protocol | WebSocket path | Internal V2Ray port |
 |----------|----------------|---------------------|
-| VLESS | `/vless` | 53217 |
-| VMess | `/vmess` | 53218 |
-| Trojan | `/trojan` | 53219 |
+| VLESS | `/vless/<credential>` | 53217 |
+| VMess | `/vmess/<credential>` | 53218 |
+| Trojan | `/trojan/<credential>` | 53219 |
 
-These WebSocket paths are public to tunnel clients: they do not require a
-management account, session cookie, or browser Origin header. V2Ray still
-validates its own configured credentials, and the gateway's IP blocklist still
-applies. A plain HTTP request to a tunnel path receives `426 Upgrade Required`.
+These WebSocket paths require an enabled, synchronized connection credential,
+not a management cookie or browser Origin header. The gateway rewrites each
+authorized path to the protocol's internal path. V2Ray independently validates
+the protocol credential, and the IP blocklist still applies. The old shared
+paths without a credential are disabled. A plain HTTP request to a correctly
+shaped private tunnel path receives `426 Upgrade Required`.
 Keep management routes protected separately from tunnel paths in any external
 access policy.
 
@@ -26,14 +28,13 @@ user management uses `/api/users`, IP controls use `/api/blocklist/*`, and the
 status snapshot is at `/api/status.json`. The old `/auth/*`, `/blocklist/*`,
 and `/status.json` paths are no longer available; update external clients and
 access policies when redeploying. Browser page routes, `/healthz`, tunnel
-paths, and the `/socket.io/` WebSocket transport are unchanged.
+and the `/socket.io/` WebSocket transport are unchanged.
 
 ## Deploy
 
 1. Deploy [docker-compose.yaml](../docker-compose.yaml) in Coolify with:
 
    ```text
-   V2RAY_UUID=<shared credential>
    V2RAY_HOST=ws.hesamian.com
    DATABASE_URL=<PostgreSQL connection URL from Coolify>
    ```
@@ -45,11 +46,17 @@ paths, and the `/socket.io/` WebSocket transport are unchanged.
    **Full (strict)** TLS with a valid origin certificate. Exclude tunnel paths
    and the management Socket.IO path `/socket.io/` from caching and interactive
    challenges. Allow WebSocket upgrades on both.
-5. Deploy and import the generated profiles. Clients use **port 443**.
+5. Deploy. V2Ray starts without tunnel users, with its HandlerService API on
+   internal port **10085**. Never publish that port or the direct V2Ray ports.
+   The management API has no authentication and must stay on the trusted
+   container network. Only the gateway should be externally accessible.
 6. Restrict access to the management hostname during setup, then visit
    `/register` over HTTPS and create the administrator account. The first
    registered user becomes the active administrator, so anyone who reaches an
    uninitialized deployment can claim this role.
+7. On **Users**, activate the account and choose **Create connection**. Save
+   the private subscription URL and add it in v2rayNG's subscription settings.
+   Update subscriptions, then connect on **port 443**.
 
 ## Management accounts
 
@@ -93,9 +100,10 @@ creation and read/write permissions. Preserve these tables across redeploys;
 deleting all accounts allows the next registrant to become administrator.
 There are no default credentials or local-file fallback.
 
-Management accounts protect the dashboard only. V2Ray tunnel paths, shared UUID
-authentication and `/healthz` are unchanged. Registering or activating an
-account does not issue or revoke tunnel credentials.
+Dashboard approval and tunnel status remain separate. Registering or activating
+an account does not automatically create tunnel credentials. Administrators
+explicitly create one connection per account; pending accounts must be activated
+first. A connection contains VLESS, VMess, and Trojan profiles.
 
 The navigation bar links to **Status**, **Blocked IPs**, and, for administrators,
 **Users**. Login and registration have their own pages. Active viewers can open
@@ -118,14 +126,16 @@ For a non-Docker setup, install Node/npm for the build and Bun for the gateway:
 ```bash
 npm ci
 npm run build
-# Set DATABASE_URL (and GATEWAY_SECURE_COOKIES=false only for local HTTP):
+# Set DATABASE_URL, V2RAY_HOST, V2RAY_API_ADDRESS, and
+# GATEWAY_SECURE_COOKIES=false only for local HTTP:
 bun gateway/server.js
 ```
 
 Rebuild after frontend changes. Source is in [frontend](../frontend); generated
 `gateway/public` assets are not committed.
 
-For frontend development, start the gateway with `DATABASE_URL` and
+For frontend development, start the gateway with `DATABASE_URL`, `V2RAY_HOST`,
+`V2RAY_API_ADDRESS`, and
 `GATEWAY_SECURE_COOKIES=false`, then run `npm run dev` in another terminal.
 Open the Vite URL it prints (normally `http://127.0.0.1:5173`). Vite proxies
 management API and Socket.IO requests to the local gateway on port 53217,
@@ -134,27 +144,69 @@ proxy target in [frontend/vite.config.js](../frontend/vite.config.js). Both
 servers must be running; the gateway still requires PostgreSQL. Do not expose
 the HTTP development server or disable secure cookies in production.
 
-## Profiles
+## Per-user subscriptions and live controls
 
-Set `FTP_HOST`, `FTP_USER`, `FTP_PASS`, and optionally `FTP_PATH` to upload
-these files for each protocol:
+The administrator's **Users** page provides:
 
-- `client.json` - client profile
-- `connection.txt` - share link
-- `qr.png` - share-link QR code
+- **Create connection:** generate unique credentials and a private subscription.
+- **Pause:** reject new tunnels and close that user's existing gateway sockets.
+- **Resume:** restore access with the same profiles.
+- **Reset credentials:** invalidate old profiles and the old subscription URL.
+  Resetting a paused connection does not resume it.
+- **Replace subscription URL:** issue a new URL without changing tunnel
+  credentials; the old URL stops updating, but cached profiles still work.
 
-Generated SOCKS listeners use local port **10808**.
+Subscription URLs have the form `https://<V2RAY_HOST>/subscriptions/<token>`.
+They return a Base64-encoded list of share links, without dashboard login.
+Tokens contain 256 random bits; only SHA-256 token hashes are persisted.
+The raw URL is shown only in the action response and temporarily in the browser,
+not user lists or realtime snapshots. Save it when issued; if lost, replace it.
+Keep subscription URLs and exported profiles private, and disable proxy access
+logging for `/subscriptions/*` and private tunnel paths. Exclude these paths
+from caching, browser challenges, and external dashboard-login requirements.
 
-Shadowsocks is no longer supported. Redeploy to regenerate the server config
-without its listener and remove its gateway route. Local credential rotation
-also removes its inbound and outbound from existing combined configs. Remove
-previously uploaded Shadowsocks files from the FTP server and delete old
-Shadowsocks profiles from clients manually; uploads do not delete remote files.
+Sequelize creates `gateway_tunnel_connections` in PostgreSQL. It stores the
+owning account, tunnel credential, subscription hash, desired enabled state,
+and synchronization status/error. Tunnel credentials must be recoverable to
+generate profiles; restrict and back up this database accordingly. Do not delete
+connection records directly: use Pause to revoke runtime access.
 
-Old files, profiles, and Coolify routes must be removed manually. There is no
-automatic legacy cleanup or migration; regenerate and re-import old profiles.
+Changes use V2Fly HandlerService AddUser/RemoveUser operations for each protocol.
+No container restart or Docker socket is needed. A private credential-bearing
+gateway path lets the gateway close only the affected user's sockets and reject
+cached profiles immediately. An empty subscription alone would not revoke access.
+The credentials and private paths are bearer secrets, not device identities.
+Expiration, quotas, and device limits are not implemented in this version.
 
-## Rotate credentials
+The gateway reconciles desired database state at startup and every 15 seconds,
+restoring accounts after V2Ray restarts. Failed updates return HTTP 503 and show
+an error in Users; affected connections remain blocked until a retry succeeds.
+A failed action may have saved its desired state, so inspect its status before
+retrying. Only one gateway may manage a V2Ray instance; multi-instance
+coordination is not supported.
+
+Admin-only, same-origin POST endpoints:
+
+- `/api/users/:id/connection`
+- `/api/connections/:id/pause`
+- `/api/connections/:id/resume`
+- `/api/connections/:id/reset`
+- `/api/connections/:id/subscription`
+
+For local development set `V2RAY_HOST` to the public hostname and
+`V2RAY_API_ADDRESS` to the reachable internal gRPC address (default:
+`v2ray:10085`). Run V2Ray with a managed configuration generated by `init`
+with `V2RAY_MANAGED=true`. Keep the API private even in development.
+
+### Migration from shared profiles
+
+Redeploy all services, including `init`, to replace the old persisted server
+configuration. Compose enables managed mode and no longer uses `V2RAY_UUID`
+or FTP exports. Existing shared credentials and bare protocol paths stop working.
+Create private subscriptions for users and remove old FTP exports and client
+profiles manually. Shadowsocks is no longer supported.
+
+## Offline credential generation
 
 ```bash
 npm ci
@@ -164,11 +216,10 @@ npm run rotate -- ws.hesamian.com
 npm run rotate -- ws.hesamian.com --uuid <uuid>
 ```
 
-This writes local server/client configs and protocol exports. Existing configs
-must already use WebSocket; remove older configs to regenerate from templates.
-
-Set the new `V2RAY_UUID` in Coolify and **redeploy**. Restarting alone does not
-apply locally generated files.
+This writes standalone local server/client configs and protocol exports.
+It does not change deployed per-user connections. Use Users to reset those.
+Existing local configs must already use WebSocket; regenerate old configs
+from templates if necessary.
 
 ## Status and logs
 
@@ -307,8 +358,8 @@ The status page remains reachable from blocked IPs.
 **Only active administrators can block or unblock IPs.** Active viewers have
 read-only access. Session authentication, administrator checks and same-origin
 POST checks are enforced server-side.
-IP blocking is not device identification: people may share an IP or change IPs,
-and everyone using the shared UUID remains indistinguishable by credentials.
+IP blocking is not device identification: people may share an IP or change IPs.
+Per-user credentials identify access to a connection, not individual devices.
 
 The list is limited to **1,000 IPs**, with no automatic eviction. Sequelize
 uses PostgreSQL to store it in `gateway_ip_blocklist` via `DATABASE_URL`; the database role

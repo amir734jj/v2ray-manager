@@ -1,10 +1,10 @@
 import { Server } from 'socket.io';
-import { authenticateSession, listAccounts } from './accounts.js';
+import { authenticateSession } from './accounts.js';
 import { getSessionToken, isSameOrigin } from './auth.js';
 import { gatewayEvents } from './events.js';
-import { statusSnapshot } from './status.js';
+import { statusSnapshot, usersSnapshot } from './status.js';
 
-export function attachRealtime(server, { accounts, blocklist, secureCookies, logger, ipDetails }) {
+export function attachRealtime(server, { accounts, tunnels, blocklist, secureCookies, logger, ipDetails }) {
   const io = new Server(server, {
     path: '/socket.io/',
     transports: ['websocket'],
@@ -105,7 +105,7 @@ export function attachRealtime(server, { accounts, blocklist, secureCookies, log
           }
           const data = resource === 'status'
             ? statusSnapshot(blocklist, ipDetails)
-            : { users: await listAccounts(accounts) };
+            : await usersSnapshot(accounts, tunnels);
           if (socket.connected && subscriptions.has(resource)) socket.emit('resource', { resource, data });
         }
       } catch (error) {

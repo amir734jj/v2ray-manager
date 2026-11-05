@@ -11,6 +11,8 @@ import { attachRealtime } from './realtime.js';
 import { createResourceHistory } from './resource-history.js';
 import { createIpDetails } from './ip-details.js';
 import { gatewayEvents } from './events.js';
+import { createConnectionService, disconnectTunnelSockets, parseTunnelPath } from './connections.js';
+import { createV2rayApi } from './v2ray-api.js';
 
 const logger = createGatewayLogger();
 const ipDetails = createIpDetails({ logger, onChange: () => gatewayEvents.emit('status') });
@@ -33,7 +35,7 @@ const secureCookies = process.env.GATEWAY_SECURE_COOKIES ?? 'true';
 if (!['true', 'false'].includes(secureCookies)) {
   throw new Error('GATEWAY_SECURE_COOKIES must be true or false');
 }
-const { blocklist: storedBlocklist, accounts, close: closeDatabase } = await createDatabase(process.env.DATABASE_URL);
+const { blocklist: storedBlocklist, accounts, Connection, close: closeDatabase } = await createDatabase(process.env.DATABASE_URL);
 let resourceHistory;
 try {
   resourceHistory = await createResourceHistory(process.env.GATEWAY_METRICS_PATH ?? './data/resource-history');
@@ -43,6 +45,16 @@ try {
 }
 startResourceRecording(resourceHistory, logger);
 const sockets = new Map();
+const tunnels = createConnectionService({
+  Connection,
+  User: accounts.User,
+  api: createV2rayApi(process.env.V2RAY_API_ADDRESS ?? `${upstreamHost}:10085`),
+  host: process.env.V2RAY_HOST,
+  logger,
+  onChange: () => gatewayEvents.emit('users'),
+  disconnect: id => disconnectTunnelSockets(sockets, id),
+});
+await tunnels.start();
 
 function clientMetadata(request) {
   const { headers } = request;
@@ -110,6 +122,7 @@ proxy.on('error', (error, request, response) => {
 
 const statusApp = createStatusApp({
   accounts,
+  tunnels,
   resourceHistory,
   ipDetails,
   secureCookies: secureCookies === 'true',
@@ -153,26 +166,38 @@ const server = createServer((request, response) => {
     response.end('ok\n');
     return;
   }
-  if (routes.has(path)) {
+  if (parseTunnelPath(path)) {
     response.writeHead(426, { 'content-type': 'text/plain' });
     response.end('WebSocket upgrade required\n');
+    return;
+  }
+  if (routes.has(path)) {
+    response.writeHead(404, { 'content-type': 'text/plain' });
+    response.end('Shared tunnel paths are disabled\n');
     return;
   }
   statusApp(request, response);
 });
 
-// Tunnel upgrades bypass management authentication; V2Ray enforces its own credentials.
-server.on('upgrade', (request, socket, head) => {
+// Private paths authorize the owner; V2Ray separately validates protocol credentials.
+async function upgradeTunnel(request, socket, head) {
   const path = new URL(request.url, 'http://localhost').pathname;
   if (path.startsWith('/socket.io/')) return;
-  const target = routes.get(path);
-  if (!target) {
+  const parsed = parseTunnelPath(path);
+  if (!parsed) {
     socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
     return;
   }
+  const tunnel = await tunnels.authorize(path);
+  if (socket.destroyed) return;
+  if (!tunnel) {
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+    return;
+  }
+  const target = routes.get(`/${tunnel.protocol}`);
   const metadata = clientMetadata(request);
   if (metadata.ip && storedBlocklist.has(metadata.ip)) {
-    logger.warn({ ...metadata, protocol: path.slice(1) }, 'Gateway connection blocked');
+    logger.warn({ ...metadata, protocol: tunnel.protocol }, 'Gateway connection blocked');
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 8\r\n\r\nBlocked\n');
     return;
   }
@@ -180,7 +205,9 @@ server.on('upgrade', (request, socket, head) => {
     ...metadata,
     connectionId: randomUUID(),
     transport: 'ws',
-    protocol: path.slice(1),
+    protocol: tunnel.protocol,
+    tunnelId: tunnel.id,
+    userId: tunnel.userId,
     connectedAt: new Date().toISOString(),
   };
   const connection = {
@@ -190,11 +217,18 @@ server.on('upgrade', (request, socket, head) => {
   };
   sockets.set(socket, connection);
   wsConnections.set(request, connection);
+  request.url = `/${tunnel.protocol}`;
   proxy.ws(request, socket, head, { target });
+}
+server.on('upgrade', (request, socket, head) => {
+  upgradeTunnel(request, socket, head).catch(error => {
+    logger.error({ err: error }, 'Tunnel authorization failed');
+    if (!socket.destroyed) socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+  });
 });
 
 attachRealtime(server, {
-  accounts, blocklist: storedBlocklist, secureCookies: secureCookies === 'true', logger, ipDetails,
+  accounts, tunnels, blocklist: storedBlocklist, secureCookies: secureCookies === 'true', logger, ipDetails,
 });
 
 function serverError(error) {
@@ -225,6 +259,12 @@ function shutdown() {
       process.exitCode = 1;
     }
     await stopResourceRecording();
+    try {
+      await tunnels.close();
+    } catch (error) {
+      logger.error({ err: error }, 'Tunnel management shutdown error');
+      process.exitCode = 1;
+    }
     try {
       await resourceHistory.close();
     } catch (historyError) {

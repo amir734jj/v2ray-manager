@@ -2,22 +2,23 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSy
 import { execSync } from 'child_process';
 import { join } from 'path';
 import QRCode from 'qrcode';
-import { configureClient, configureServerTransports, createConnectionUrls, protocols, validateHost } from './connections.js';
+import { configureClient, configureManagedServer, configureServerTransports, createConnectionUrls, protocols, validateHost } from './connections.js';
 
 const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
+const managed = process.env.V2RAY_MANAGED === 'true';
 
 // ── Generate server.json ─────────────────────────────────────────────────────
 const cfgPath = '/cfg/server.json';
 
-if (!V2RAY_UUID) {
+if (!managed && !V2RAY_UUID) {
   console.error('ERROR: V2RAY_UUID is required');
   process.exit(1);
 }
 validateHost(V2RAY_HOST);
 
 const template = readFileSync('/app/templates/server.template.json', 'utf8');
-const serverJson = configureServerTransports(
-  JSON.parse(template.replaceAll('00000000-0000-0000-0000-000000000000', V2RAY_UUID)),
+const serverJson = (managed ? configureManagedServer : configureServerTransports)(
+  JSON.parse(template.replaceAll('00000000-0000-0000-0000-000000000000', V2RAY_UUID ?? '00000000-0000-0000-0000-000000000000')),
 );
 const config = JSON.stringify(serverJson, null, 2) + '\n';
 const tmpPath = `${cfgPath}.tmp`;
@@ -33,7 +34,10 @@ try {
 }
 
 // ── Generate client folders & upload to FTP ─────────────────────────────────
-if (FTP_HOST) {
+if (managed && FTP_HOST) {
+  console.warn('WARNING: shared FTP exports are disabled in managed mode; issue private subscriptions from Users.');
+}
+if (FTP_HOST && !managed) {
 
   const ftpBase = `ftp://${FTP_HOST}${FTP_PATH || '/'}`;
   console.log(`FTP target: ${ftpBase} (user: ${FTP_USER})`);

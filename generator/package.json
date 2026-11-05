@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "exports": "./connections.js",
   "dependencies": {
     "qrcode": "^1.5.4",
     "v2ray-tools": "github:amir734jj/v2ray-tools"

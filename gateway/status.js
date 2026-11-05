@@ -193,7 +193,17 @@ export function statusSnapshot(blocklist, ipDetails) {
   return { ...snapshot(ipDetails), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
 }
 
-export function createStatusApp({ blocklist, accounts, resourceHistory, ipDetails, secureCookies = true } = {}) {
+export async function usersSnapshot(accounts, tunnels) {
+  const users = await listAccounts(accounts);
+  const state = tunnels ? await tunnels.list() : { connections: [], error: 'Tunnel management is unavailable' };
+  const connections = new Map(state.connections.map(connection => [connection.userId, connection]));
+  return {
+    users: users.map(user => ({ ...user, connection: connections.get(user.id) ?? null })),
+    tunnelError: state.error,
+  };
+}
+
+export function createStatusApp({ blocklist, accounts, tunnels, resourceHistory, ipDetails, secureCookies = true } = {}) {
   const app = express();
   app.disable('x-powered-by');
   app.disable('etag');
@@ -211,16 +221,28 @@ export function createStatusApp({ blocklist, accounts, resourceHistory, ipDetail
   const { router, initialize, requireUser, requireAdmin } = createAuth({ accounts, secureCookies });
   app.use(initialize);
   app.use('/api/auth', router);
+  app.get('/subscriptions/:token', async (request, response) => {
+    if (!tunnels) throw Object.assign(new Error('Tunnel management is unavailable'), { status: 503 });
+    response.type('text/plain').send(await tunnels.subscription(request.params.token));
+  });
   app.use('/assets', express.static(fileURLToPath(new URL('./public/assets', import.meta.url)), {
     index: false, redirect: false,
   }));
   app.get('/api/users', requireUser, requireAdmin, async (_request, response) => {
-    response.json({ users: await listAccounts(accounts) });
+    response.json(await usersSnapshot(accounts, tunnels));
   });
   app.post('/api/users/:id/activate', requireUser, requireAdmin, sameOrigin, async (request, response) => {
     const user = await activateAccount(accounts, request.params.id);
     gatewayEvents.emit('users');
     response.json({ user });
+  });
+  app.post('/api/users/:id/connection', requireUser, requireAdmin, sameOrigin, async (request, response) => {
+    if (!tunnels) throw Object.assign(new Error('Tunnel management is unavailable'), { status: 503 });
+    response.status(201).json(await tunnels.create(request.params.id));
+  });
+  app.post('/api/connections/:id/:action', requireUser, requireAdmin, sameOrigin, async (request, response) => {
+    if (!tunnels) throw Object.assign(new Error('Tunnel management is unavailable'), { status: 503 });
+    response.json(await tunnels.change(request.params.id, request.params.action));
   });
   app.all(['/api/blocklist/block', '/api/blocklist/unblock'], (request, response, next) => {
     if (request.method !== 'POST') {
