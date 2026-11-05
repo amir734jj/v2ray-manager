@@ -13,13 +13,14 @@ function Rate({ value }) {
 }
 
 function Counters({ rows, countries = false }) {
+  const visibleRows = rows.filter(row => row.active !== 0 || row.total !== 0 || row.errors !== 0);
   return <Table headings={[countries ? 'Country' : 'Protocol', countries ? 'Code' : 'Transport', 'Open client sockets', 'Connection attempts', 'Proxy failures']}>
-    {rows.map(row => <tr key={countries ? row.code : row.protocol}>
+    {visibleRows.map(row => <tr key={countries ? row.code : row.protocol}>
       <th scope="row">{countries ? row.name : row.protocol}</th>
       <td>{countries ? row.code : row.transport.toUpperCase()}</td>
       <td>{row.active}</td><td>{row.total}</td><td>{row.errors}</td>
     </tr>)}
-    {!rows.length && <tr><td colSpan={5}>No connections yet.</td></tr>}
+    {!visibleRows.length && <tr><td colSpan={5}>No connections yet.</td></tr>}
   </Table>;
 }
 

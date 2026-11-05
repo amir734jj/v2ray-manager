@@ -240,6 +240,8 @@ apply locally generated files.
   Socket.IO pushes connection, blocklist and user changes, along with periodic
   snapshots. Status includes active tunnels, attempts, and errors by protocol
   and country, plus aggregate proxy upload and download throughput.
+  Protocol and country tables hide rows whose open sockets, connection attempts
+  and proxy failures are all zero; the JSON snapshot retains all counters.
   Rates are averages over the most recent five-second sampling interval and
   initially show "Collecting..." until the first sample. Upload means client to
   gateway; download means gateway to client. They measure routed gateway socket
