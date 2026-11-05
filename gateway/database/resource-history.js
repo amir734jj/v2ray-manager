@@ -1,5 +1,6 @@
 import { ClassicLevel } from 'classic-level';
 import createError from 'http-errors';
+import { createTrafficUsage } from './traffic-usage.js';
 
 export const RESOURCE_RANGES = {
   '5m': 5 * 60 * 1000,
@@ -73,14 +74,16 @@ function finishSeries(series) {
 }
 
 class ResourceHistory {
-  constructor(database, clock = Date.now) {
+  constructor(database, trafficUsage, clock = Date.now) {
     this.database = database;
+    this.trafficUsage = trafficUsage;
     this.clock = clock;
   }
 
   async pruneBatch() {
     const operations = [];
     for await (const key of this.database.keys({
+      gte: keyFor(0),
       lt: keyFor(this.clock() - RETENTION_MS),
       limit: CLEANUP_BATCH,
       fillCache: false,
@@ -131,8 +134,9 @@ export async function createResourceHistory(path) {
     writeBufferSize: 1024 * 1024,
   });
   await database.open();
-  const history = new ResourceHistory(database);
   try {
+    const trafficUsage = await createTrafficUsage(database.sublevel('subscription-traffic', { valueEncoding: 'json' }));
+    const history = new ResourceHistory(database, trafficUsage);
     await history.pruneExpired();
     return history;
   } catch (error) {

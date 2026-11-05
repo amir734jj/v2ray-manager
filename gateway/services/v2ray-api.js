@@ -70,13 +70,25 @@ export function createV2rayApi(address) {
         `proxy/${protocol}${protocol === 'vmess' ? '/inbound' : ''}: User ${email} not found.`);
     },
     async stats() {
+      const beforeStart = Date.now();
       const before = await readStats('getSysStats', {});
+      const beforeEnd = Date.now();
       const response = await readStats('queryStats', { pattern: 'user>>>connection-', reset: false });
+      const afterStart = Date.now();
       const after = await readStats('getSysStats', {});
-      if (after.uptime < before.uptime) throw new Error('V2Ray restarted while collecting statistics; retrying on the next sample');
+      const afterEnd = Date.now();
+      // Uptime is rounded to seconds; RPC timings bound the actual process start.
+      const bootWindow = {
+        min: Math.max(beforeStart - (before.uptime + 1) * 1000, afterStart - (after.uptime + 1) * 1000),
+        max: Math.min(beforeEnd - before.uptime * 1000, afterEnd - after.uptime * 1000),
+      };
+      if (after.uptime < before.uptime || bootWindow.min > bootWindow.max) {
+        throw new Error('V2Ray restarted while collecting statistics; retrying on the next sample');
+      }
       return {
-        sampledAt: new Date().toISOString(),
+        sampledAt: new Date(afterEnd).toISOString(),
         uptimeSeconds: after.uptime,
+        bootWindow,
         counters: response.stat.map(counter => ({ name: counter.name, value: counter.value.toString() })),
       };
     },

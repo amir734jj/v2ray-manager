@@ -68,9 +68,13 @@ valid; back up PostgreSQL before upgrading.
 The administrator's Subscriptions page also shows each subscription's open gateway tunnels,
 oldest open tunnel time, upload/download speed, and last observed socket traffic.
 These are socket measurements, not device counts or proof of authentication.
-Separate V2Ray totals show traffic attributed to authenticated credentials since
-the core started. Both update about every five seconds; failures mark core
-totals stale instead of reporting zero. Redeploy `init` and V2Ray once to enable
+Separate V2Ray totals show accumulated traffic attributed to authenticated credentials,
+persisted in the embedded LevelDB store across gateway and V2Ray restarts.
+Both update about every five seconds; collection or storage failures mark core
+totals stale instead of reporting zero. Preserve the `gateway-metrics` volume.
+Accumulated totals are separate from the charts' 24-hour retention.
+Traffic not sampled before a V2Ray reset cannot be recovered.
+Redeploy `init` and V2Ray once to enable
 the StatsService and user counters.
 
 The deployment no longer accepts `V2RAY_UUID` or shared FTP profiles. Existing

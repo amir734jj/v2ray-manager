@@ -26,7 +26,7 @@ export function subscriptionContent(connection, host) {
   return Buffer.from(Object.values(createConnectionUrls(config, host)).join('\n') + '\n').toString('base64');
 }
 
-export function createConnectionService({ connections, api, host, disconnect, countIps, logger, onChange = () => {} }) {
+export function createConnectionService({ connections, api, host, disconnect, countIps, trafficUsage, logger, onChange = () => {} }) {
   validateHost(host);
   let queue = Promise.resolve();
   let stopping = false;
@@ -131,26 +131,28 @@ export function createConnectionService({ connections, api, host, disconnect, co
         if (!match || !uuidPattern.test(match[1])) continue;
         const value = BigInt(counter.value);
         if (value < 0n) throw new RangeError('V2Ray returned a negative user traffic counter');
-        const current = counters.get(match[1]) ?? { uploadBytes: '0', downloadBytes: '0' };
+        const current = counters.get(match[1]) ?? {};
         current[match[2] === 'uplink' ? 'uploadBytes' : 'downloadBytes'] = value.toString();
         counters.set(match[1], current);
       }
-      coreCounters = counters;
+      const rows = await connections.list();
+      const saved = await trafficUsage.record(sample, counters, rows.map(row => row.id));
+      coreCounters = saved.counters;
       coreStats = { status: 'ready', sampledAt: sample.sampledAt, uptimeSeconds: sample.uptimeSeconds, error: null };
     } catch (error) {
       coreStats = {
         ...coreStats,
         status: 'error',
-        error: 'V2Ray user statistics are unavailable; previously collected totals may be stale. Check the internal API and ensure StatsService and user counters are enabled.',
+        error: 'Traffic totals could not be collected or saved; displayed totals may be stale. Check gateway logs, the embedded metrics store, and the V2Ray StatsService.',
       };
-      logger.warn({ err: error }, 'V2Ray user statistics failed');
+      logger.warn({ err: error }, 'V2Ray traffic collection or persistence failed');
     }
     onChange();
   }
 
   async function scheduleStats() {
     if (stopping) return;
-    pendingStats = collectStats();
+    pendingStats = exclusive(collectStats);
     try {
       await pendingStats;
     } finally {
@@ -163,7 +165,12 @@ export function createConnectionService({ connections, api, host, disconnect, co
   }
 
   return {
-    async start() { await Promise.all([scheduleReconciliation(), scheduleStats()]); },
+    async start() {
+      const saved = trafficUsage.snapshot();
+      coreCounters = saved.counters;
+      coreStats = { ...coreStats, sampledAt: saved.sampledAt, uptimeSeconds: saved.uptimeSeconds };
+      await Promise.all([scheduleReconciliation(), scheduleStats()]);
+    },
     async close() {
       stopping = true;
       clearTimeout(timer);
@@ -225,6 +232,7 @@ export function createConnectionService({ connections, api, host, disconnect, co
             await apply(row);
             if (action === 'delete') {
               await connections.remove(row);
+              await trafficUsage.remove(id);
               appliedCredentials.delete(id);
               coreCounters.delete(id);
             }

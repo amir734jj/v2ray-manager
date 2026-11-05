@@ -118,7 +118,9 @@ function SubscriptionList() {
     </p>
     <p>
       Core totals measure traffic attributed to authenticated V2Ray credentials across all three protocols,
-      not lifetime usage. They reset when V2Ray restarts; socket activity and core accounting are separate measurements.
+      accumulated in the embedded database across gateway and V2Ray restarts.
+      Socket activity and core accounting are separate measurements.
+      Traffic not sampled before V2Ray resets cannot be recovered.
     </p>
     </details>
     {data?.coreStats?.sampledAt && <p class="text-body-secondary">

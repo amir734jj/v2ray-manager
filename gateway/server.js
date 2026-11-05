@@ -66,6 +66,7 @@ try {
     onChange: () => gatewayEvents.emit('connections'),
     disconnect: gatewayProxy.disconnectTunnel,
     countIps: gatewayProxy.countTunnelIps,
+    trafficUsage: resourceHistory.trafficUsage,
   });
   await tunnels.start();
   if (workerFailure) throw workerFailure;

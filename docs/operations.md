@@ -281,10 +281,27 @@ last successful sample time, core uptime, and any collection error. Failed reads
 show a warning; cached totals remain explicitly stale, or unavailable if nothing
 has been collected. Statistics failures do not pause working connections.
 
-Core totals reset when V2Ray restarts, not when the gateway restarts or credentials
-are reset. They are not persisted usage history, lifetime billing totals, quotas,
-or online-user/device counts. Gateway per-subscription metrics are in memory only, use
-the existing shared sampler, and do not add per-subscription timers or history storage.
+Core totals accumulate in the existing embedded LevelDB store and survive gateway
+and V2Ray restarts, credential resets, and pause/resume. A separate
+`subscription-traffic` sublevel stores totals and raw-counter checkpoints together
+in a synchronous atomic write after each successful sample. V2Ray uptime and
+RPC timing identify process restarts, including restarts while the gateway is
+offline; lower raw counters are also treated as counter resets. Repeated samples
+and gateway restarts do not count the same bytes twice.
+
+The first sample imports the currently available V2Ray counters. Earlier usage
+already lost to a core reset cannot be recovered. Neither can traffic between the
+last successful sample and a V2Ray reset, including during collection/storage
+outages. These are sampled accumulated totals, not exact billing records.
+Read/write failures surface a warning and keep the last saved totals stale rather
+than displaying zeros. Persisted totals load even if V2Ray is initially unavailable.
+Deleting a subscription removes its saved usage; orphaned entries are also
+removed on the next successful sample.
+
+Preserve and back up the `gateway-metrics` volume at `GATEWAY_METRICS_PATH`.
+Accumulated totals are not subject to the charts' 24-hour retention. Removing that
+volume loses the accumulated totals and checkpoints. Only one gateway may open it.
+Gateway socket metrics remain in memory; no per-subscription timers are added.
 
 Admin-only, same-origin POST endpoints:
 
@@ -481,7 +498,7 @@ Database initialization is in [gateway/database/connection.js](../gateway/databa
 Each entity owns its model and database operations in
 [gateway/database](../gateway/database): `users.js`, `sessions.js`,
 `blocked-ips.js`, and `tunnel-connections.js`. LevelDB metrics storage is in
-`resource-history.js` in the same folder. Authentication and tunnel-control
+`resource-history.js` and `traffic-usage.js` in the same folder. Authentication and tunnel-control
 services use these repositories rather than issuing database queries directly.
 Gateway services live in [gateway/services](../gateway/services).
 Public folder entry points collect exports for extensionless directory imports
@@ -511,7 +528,8 @@ PostgreSQL.
 Behind Cloudflare, enable trusted client headers as described below, or the
 blocked address may be your reverse proxy rather than an individual client.
 
-Counters reset on restart. Open tunnels and healthy listeners do not prove
+Gateway socket counters reset on restart; persisted core traffic totals do not.
+Open tunnels and healthy listeners do not prove
 authenticated browsing works. An IP may represent multiple users or devices;
 each connection ID identifies a socket and changes on reconnect. User-Agent
 may hint at an app or device but can be missing or spoofed.
