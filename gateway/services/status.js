@@ -1,24 +1,19 @@
-import express from 'express';
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { createTrafficMeter } from './traffic.js';
 import { createResourceMeter } from './resources.js';
-import { createAuth, sameOrigin } from './auth.js';
-import { activateAccount, listAccounts } from './accounts.js';
+import { listAccounts } from './accounts.js';
 import { gatewayEvents } from './events.js';
 
-const publicDirectory = fileURLToPath(new URL('./public', import.meta.url));
-const statusHeaders = {
-  'cache-control': 'no-store',
-  'x-content-type-options': 'nosniff',
-  'referrer-policy': 'no-referrer',
-};
 const startedAt = new Date();
 const traffic = createTrafficMeter();
 const resources = createResourceMeter();
 let resourceRecording = null;
 let pendingResourceWrite = null;
 let resourceRecordingError = null;
+
+export function getResourceRecordingError() {
+  return resourceRecordingError;
+}
 
 export function startResourceRecording(history, logger) {
   resourceRecording = { history, logger };
@@ -90,7 +85,7 @@ function connectionTotals() {
 }
 
 export function trackConnection(transport, protocol, connection, {
-  country, ip, userAgent, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
+  country, ip, userAgent, userId, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
 } = {}) {
   const counter = counters.find(item => item.transport === transport && item.protocol === protocol);
   const code = typeof country === 'string' && /^(?:[A-Z]{2}|T1)$/.test(country) && country !== 'XX'
@@ -114,18 +109,20 @@ export function trackConnection(transport, protocol, connection, {
       ? userAgent.slice(0, MAX_USER_AGENT_LENGTH) : 'Unknown',
     connectedAt,
   } : null;
-  const clientTraffic = traffic.track(connection, bufferedBytes, Boolean(client));
+  const clientTraffic = traffic.track(connection, bufferedBytes, Boolean(client), { groupId: userId, connectedAt });
   if (client) clients.set(client, clientTraffic);
   for (const row of [counter, countryCounter]) {
     row.active++;
     row.total++;
   }
   gatewayEvents.emit('status');
+  if (userId) gatewayEvents.emit('users');
   connection.once('close', () => {
     counter.active--;
     countryCounter.active--;
     if (client) clients.delete(client);
     gatewayEvents.emit('status');
+    if (userId) gatewayEvents.emit('users');
   });
   let failed = false;
   return () => {
@@ -198,90 +195,11 @@ export async function usersSnapshot(accounts, tunnels) {
   const state = tunnels ? await tunnels.list() : { connections: [], error: 'Tunnel management is unavailable' };
   const connections = new Map(state.connections.map(connection => [connection.userId, connection]));
   return {
-    users: users.map(user => ({ ...user, connection: connections.get(user.id) ?? null })),
+    users: users.map(user => {
+      const connection = connections.get(user.id);
+      return { ...user, connection: connection ? { ...connection, gateway: traffic.groupSnapshot(user.id) } : null };
+    }),
     tunnelError: state.error,
+    coreStats: state.coreStats ?? null,
   };
-}
-
-export function createStatusApp({ blocklist, accounts, tunnels, resourceHistory, ipDetails, secureCookies = true } = {}) {
-  const app = express();
-  app.disable('x-powered-by');
-  app.disable('etag');
-  app.enable('strict routing');
-  app.enable('case sensitive routing');
-  app.use((request, response, next) => {
-    response.set(statusHeaders);
-    const host = request.headers.host;
-    const websocketSources = typeof host === 'string' && /^(?:\[[a-f0-9:.]+\]|[a-z0-9.-]+)(?::[0-9]{1,5})?$/i.test(host)
-      ? ` ws://${host} wss://${host}` : '';
-    response.set('content-security-policy',
-      `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'${websocketSources}; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`);
-    next();
-  });
-  const { router, initialize, requireUser, requireAdmin } = createAuth({ accounts, secureCookies });
-  app.use(initialize);
-  app.use('/api/auth', router);
-  app.get('/subscriptions/:token', async (request, response) => {
-    if (!tunnels) throw Object.assign(new Error('Tunnel management is unavailable'), { status: 503 });
-    response.type('text/plain').send(await tunnels.subscription(request.params.token));
-  });
-  app.use('/assets', express.static(fileURLToPath(new URL('./public/assets', import.meta.url)), {
-    index: false, redirect: false,
-  }));
-  app.get('/api/users', requireUser, requireAdmin, async (_request, response) => {
-    response.json(await usersSnapshot(accounts, tunnels));
-  });
-  app.post('/api/users/:id/activate', requireUser, requireAdmin, sameOrigin, async (request, response) => {
-    const user = await activateAccount(accounts, request.params.id);
-    gatewayEvents.emit('users');
-    response.json({ user });
-  });
-  app.post('/api/users/:id/connection', requireUser, requireAdmin, sameOrigin, async (request, response) => {
-    if (!tunnels) throw Object.assign(new Error('Tunnel management is unavailable'), { status: 503 });
-    response.status(201).json(await tunnels.create(request.params.id));
-  });
-  app.post('/api/connections/:id/:action', requireUser, requireAdmin, sameOrigin, async (request, response) => {
-    if (!tunnels) throw Object.assign(new Error('Tunnel management is unavailable'), { status: 503 });
-    response.json(await tunnels.change(request.params.id, request.params.action));
-  });
-  app.all(['/api/blocklist/block', '/api/blocklist/unblock'], (request, response, next) => {
-    if (request.method !== 'POST') {
-      response.set('Allow', 'POST').status(405).type('text').send('Method Not Allowed\n');
-      return;
-    }
-    if (!blocklist) {
-      next(Object.assign(new Error('Blocklist controls are unavailable'), { status: 404 }));
-      return;
-    }
-    next();
-  }, requireUser, requireAdmin, sameOrigin, express.json({ limit: '1kb' }), async (request, response, next) => {
-    try {
-      if (request.path === '/api/blocklist/block') await blocklist.block(request.body?.ip);
-      else await blocklist.unblock(request.body?.ip);
-      gatewayEvents.emit('status');
-      response.json({ blockedIPs: blocklist.list() });
-    } catch (error) {
-      if (error instanceof TypeError) error.status = 400;
-      if (error instanceof RangeError) error.status = 409;
-      next(error);
-    }
-  });
-  app.get('/api/status.json', requireUser, (_request, response) => {
-    response.json(statusSnapshot(blocklist, ipDetails));
-  });
-  app.get('/api/resource-history', requireUser, async (request, response) => {
-    if (!resourceHistory) {
-      throw Object.assign(new Error('Resource history is unavailable'), { status: 503 });
-    }
-    const history = await resourceHistory.read(request.query.range ?? '1h');
-    response.json({ ...history, recordingError: resourceRecordingError });
-  });
-  app.all(['/', '/status', '/login', '/register', '/blocked-ips', '/users'], (request, response) => {
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      response.set('Allow', 'GET, HEAD').status(405).type('text').send('Method Not Allowed\n');
-      return;
-    }
-    response.sendFile('index.html', { root: publicDirectory });
-  });
-  return app;
 }

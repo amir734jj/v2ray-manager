@@ -42,6 +42,14 @@ The same profiles work after resuming. Resetting credentials invalidates old
 profiles and issues a new subscription URL. Subscription tokens are shown only
 when issued; only their hashes are stored.
 
+The administrator's Users table also shows each user's open gateway tunnels,
+oldest open tunnel time, upload/download speed, and last observed socket traffic.
+These are socket measurements, not device counts or proof of authentication.
+Separate V2Ray totals show traffic attributed to authenticated credentials since
+the core started. Both update about every five seconds; failures mark core
+totals stale instead of reporting zero. Redeploy `init` and V2Ray once to enable
+the StatsService and user counters.
+
 The deployment no longer accepts `V2RAY_UUID` or shared FTP profiles. Existing
 clients need new private subscriptions after upgrading. Remove old FTP exports
 manually. Expiration and device limits are not implemented yet.

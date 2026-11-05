@@ -1,35 +1,8 @@
-import { col, DataTypes, fn, Op, Sequelize, Transaction, where } from 'sequelize';
-import { normalizeIp } from './blocklist.js';
-import { initializeAccounts } from './accounts.js';
-import { initializeConnections } from './connections.js';
+import { col, DataTypes, fn, Op, Transaction, where } from 'sequelize';
+import createError from 'http-errors';
+import { normalizeIp } from '../services/index.js';
 
 export const MAX_BLOCKED_IPS = 1000;
-
-export async function createDatabase(url) {
-  if (!url) throw new Error('DATABASE_URL is required for accounts and the IP blocklist');
-  const database = new Sequelize(url, {
-    dialect: 'postgres',
-    logging: false,
-    pool: { max: 2, min: 0, acquire: 5000, idle: 30000 },
-    dialectOptions: {
-      connectionTimeoutMillis: 5000,
-      statement_timeout: 5000,
-      query_timeout: 6000,
-    },
-  });
-  try {
-    const accounts = await initializeAccounts(database);
-    return {
-      blocklist: await createBlocklist(database),
-      accounts,
-      Connection: await initializeConnections(database, accounts.User),
-      close: () => database.close(),
-    };
-  } catch (error) {
-    await database.close();
-    throw error;
-  }
-}
 
 function decodeBlockedIps(rows) {
   if (rows.length > MAX_BLOCKED_IPS) throw new RangeError(`Blocklist is limited to ${MAX_BLOCKED_IPS} IPs`);
@@ -50,7 +23,7 @@ async function loadBlockedIps(BlockedIp, transaction) {
 
 async function changeBlockedIp(state, value, adding) {
   const ip = normalizeIp(value);
-  if (state.busy) throw Object.assign(new Error('Another blocklist update is in progress; retry shortly'), { status: 409 });
+  if (state.busy) throw createError(409, 'Another blocklist update is in progress; retry shortly');
   state.busy = true;
   try {
     const next = await state.database.transaction({ isolationLevel: Transaction.ISOLATION_LEVELS.SERIALIZABLE }, async transaction => {
@@ -71,7 +44,7 @@ async function changeBlockedIp(state, value, adding) {
     return ip;
   } catch (error) {
     if (error.original?.code === '40001') {
-      throw Object.assign(new Error('Another blocklist update conflicted; retry shortly', { cause: error }), { status: 409 });
+      throw createError(409, new Error('Another blocklist update conflicted; retry shortly', { cause: error }));
     }
     throw error;
   } finally {
@@ -79,7 +52,7 @@ async function changeBlockedIp(state, value, adding) {
   }
 }
 
-async function createBlocklist(database) {
+export async function createBlocklist(database) {
   const BlockedIp = database.define('BlockedIp', {
     ip: { type: DataTypes.INET, primaryKey: true },
   }, {

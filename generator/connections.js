@@ -32,7 +32,15 @@ export function configureManagedServer(config) {
   for (const inbound of config.inbounds.filter(item => protocols.includes(item.protocol))) {
     inbound.settings.clients = [];
   }
-  config.api = { tag: 'management-api', services: ['HandlerService'] };
+  config.api = { tag: 'management-api', services: ['HandlerService', 'StatsService'] };
+  config.stats = {};
+  config.policy = {
+    ...config.policy,
+    levels: {
+      ...config.policy?.levels,
+      '0': { ...config.policy?.levels?.['0'], statsUserUplink: true, statsUserDownlink: true },
+    },
+  };
   config.inbounds.push({
     tag: 'management-api-inbound',
     listen: '0.0.0.0',

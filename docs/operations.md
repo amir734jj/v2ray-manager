@@ -114,6 +114,9 @@ with a shared lockfile. Frontend libraries such as uPlot are frontend
 dependencies; Vite is a frontend development dependency. The gateway image
 installs only gateway runtime dependencies and copies in the built browser
 assets, not the frontend's packages.
+Gateway HTTP errors use `http-errors`; session-cookie parsing uses `cookie`
+without decoding token values. IP canonicalization uses `ipaddr.js`, while
+strict IPv4/IPv6 input validation remains in place.
 
 The gateway Docker build uses Node LTS/npm (`node:lts-bookworm-slim`) to install dependencies and build the
 browser assets, then runs the gateway with `oven/bun:latest` as the non-root
@@ -184,6 +187,50 @@ an error in Users; affected connections remain blocked until a retry succeeds.
 A failed action may have saved its desired state, so inspect its status before
 retrying. Only one gateway may manage a V2Ray instance; multi-instance
 coordination is not supported.
+
+### Per-user activity and core accounting
+
+The administrator's Users table and `/api/users`/Socket.IO user snapshots expose
+two separate measurements:
+
+- `connection.gateway.openTunnels`: every currently open gateway socket for
+  that account, including sockets beyond the Status page's 1,000-detail limit.
+  One device may open many sockets. These counts are not device counts and do
+  not establish that the protocol handshake succeeded.
+- `connection.gateway.connectedSince`: the oldest currently open socket's
+  connection time, or null when no sockets are open. Closing that oldest socket
+  advances this timestamp to the next oldest.
+- `connection.gateway.traffic`: socket upload/download bytes and rates from
+  the shared five-second sampler. Upload is client to gateway; download is
+  gateway to client. Rates include recently closed sockets in the sampling
+  interval and include WebSocket framing/handshake overhead.
+- `connection.gateway.lastTrafficAt`: when a sample or socket close last
+  observed a byte-counter change. It is an observation timestamp, not an exact
+  packet timestamp or proof of authenticated application traffic. It remains
+  visible after all sockets close, until the gateway restarts.
+- `connection.coreTraffic`: authenticated V2Ray `uploadBytes`/`downloadBytes`
+  totals, aggregated across VLESS, VMess, and Trojan using the connection's
+  stable internal user identifier. Byte totals are decimal strings in the API
+  to preserve 64-bit precision; the UI formats them in binary units.
+
+Gateway ownership is determined by the private path; V2Ray accounting is
+determined by the protocol credential. They are separate attribution mechanisms,
+not independent proof of a physical user's identity. Only administrators receive
+the per-user activity and accounting snapshots.
+
+Managed configuration enables `StatsService`, the stats manager, and level-zero
+`statsUserUplink`/`statsUserDownlink` policies. Redeploy `init` and V2Ray when
+upgrading to install that configuration. The gateway polls QueryStats and
+GetSysStats without resetting counters, about every five seconds, once globally
+rather than per dashboard viewer. Top-level `coreStats` contains status, the
+last successful sample time, core uptime, and any collection error. Failed reads
+show a warning; cached totals remain explicitly stale, or unavailable if nothing
+has been collected. Statistics failures do not pause working connections.
+
+Core totals reset when V2Ray restarts, not when the gateway restarts or credentials
+are reset. They are not persisted usage history, lifetime billing totals, quotas,
+or online-user/device counts. Gateway per-user metrics are in memory only, use
+the existing shared sampler, and do not add per-user timers or history storage.
 
 Admin-only, same-origin POST endpoints:
 
@@ -295,8 +342,9 @@ from templates if necessary.
   Detailed speed state is allocated only for the existing maximum of 1,000
   displayed connections and updated in place by the shared sampler. There are
   no per-client timers or speed histories; closing a connection releases its
-  detail state. Omitted connections and upstream sockets keep only the existing
-  aggregate byte-counter baselines.
+  detail state. Omitted client sockets retain owner/time and sampling baselines
+  for per-user aggregates, but not individual speed details. Upstream sockets
+  keep only aggregate byte-counter baselines.
   The selected group stays expanded across refreshes. `/api/status.json` provides
   both grouped summaries and individual connections. At most **1,000 active
   connection details** are retained, with User-Agent text limited to 256 characters.
@@ -364,7 +412,27 @@ Per-user credentials identify access to a connection, not individual devices.
 The list is limited to **1,000 IPs**, with no automatic eviction. Sequelize
 uses PostgreSQL to store it in `gateway_ip_blocklist` via `DATABASE_URL`; the database role
 needs permission to create, alter, and update that table. There is no local-file fallback.
-Database initialization and blocklist persistence are in [gateway/database.js](../gateway/database.js).
+Database initialization is in [gateway/database/index.js](../gateway/database/index.js).
+Each entity owns its model and database operations in
+[gateway/database](../gateway/database): `users.js`, `sessions.js`,
+`blocked-ips.js`, and `tunnel-connections.js`. LevelDB metrics storage is in
+`resource-history.js` in the same folder. Authentication and tunnel-control
+services use these repositories rather than issuing database queries directly.
+Gateway services live in [gateway/services](../gateway/services), with public
+exports collected in [gateway/services/index.js](../gateway/services/index.js)
+for imports outside that folder. Services import siblings directly to avoid
+barrel-import cycles. The server and health-check entrypoints remain in `gateway`.
+HTTP routes are grouped by resource in [gateway/controllers](../gateway/controllers),
+with public exports in [gateway/controllers/index.js](../gateway/controllers/index.js).
+Controllers serve the frontend pages and dashboard APIs; services retain
+authentication, account operations, V2Ray management, and shared metrics.
+Proxy transport lives in [gateway/proxy](../gateway/proxy), with public exports
+in [gateway/proxy/index.js](../gateway/proxy/index.js). It owns upstream routing,
+WebSocket upgrades, socket tracking/disconnection, proxy errors, throughput
+logging, and the subscription endpoint used by V2Ray clients.
+[gateway/app.js](../gateway/app.js) composes the frontend and subscription routes
+with shared security headers and error handling. Existing authentication,
+same-origin checks, body-size limits, and rate limits remain in place.
 The table and constraint are initialized at startup; there are no versioned migrations.
 The gateway loads a bounded cache at startup and updates it after committed
 changes through this page. Use a single gateway instance; direct SQL changes

@@ -1,40 +1,11 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { DataTypes } from 'sequelize';
+import createError from 'http-errors';
 import { createConnectionUrls, protocols, validateHost } from '@v2ray-manager/generator';
+import { publicConnection } from '../database/tunnel-connections.js';
+import { parseTunnelPath } from '../proxy/paths.js';
 
-const failure = (status, message) => Object.assign(new Error(message), { status });
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
-const publicFields = ['id', 'userId', 'enabled', 'syncStatus', 'syncError', 'createdAt'];
-const publicConnection = row => Object.fromEntries(publicFields.map(field => [field, row[field]]));
-
-export async function initializeConnections(database, User) {
-  const Connection = database.define('TunnelConnection', {
-    id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
-    userId: { type: DataTypes.UUID, allowNull: false, unique: true, references: { model: User, key: 'id' } },
-    credential: { type: DataTypes.UUID, allowNull: false, unique: true },
-    subscriptionTokenHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
-    enabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
-    syncStatus: { type: DataTypes.STRING(16), allowNull: false, defaultValue: 'pending' },
-    syncError: { type: DataTypes.STRING(256), allowNull: true },
-  }, { tableName: 'gateway_tunnel_connections' });
-  await Connection.sync();
-  return Connection;
-}
-
-export function parseTunnelPath(path) {
-  const match = /^\/(vless|vmess|trojan)\/([a-f0-9-]+)$/.exec(path);
-  return match && uuidPattern.test(match[2]) ? { protocol: match[1], credential: match[2] } : null;
-}
-
-export function disconnectTunnelSockets(sockets, id) {
-  for (const [socket, connection] of sockets) {
-    if (connection?.client.tunnelId === id) {
-      connection.blocked = true;
-      socket.destroy();
-    }
-  }
-}
 
 export function subscriptionContent(connection, host) {
   const config = {
@@ -48,12 +19,16 @@ export function subscriptionContent(connection, host) {
   return Buffer.from(Object.values(createConnectionUrls(config, host)).join('\n') + '\n').toString('base64');
 }
 
-export function createConnectionService({ Connection, User, api, host, disconnect, logger, onChange = () => {} }) {
+export function createConnectionService({ connections, users, api, host, disconnect, logger, onChange = () => {} }) {
   validateHost(host);
   let queue = Promise.resolve();
   let stopping = false;
   let timer;
+  let statsTimer;
+  let pendingStats = null;
   let reconciliationError = null;
+  let coreStats = { status: 'loading', sampledAt: null, uptimeSeconds: null, error: null };
+  let coreCounters = new Map();
   const blocked = new Set();
   const appliedCredentials = new Map();
 
@@ -63,7 +38,7 @@ export function createConnectionService({ Connection, User, api, host, disconnec
     } catch (error) {
       if (Number.isInteger(error.status)) throw error;
       logger.error({ errorName: error.name, errorCode: error.original?.code ?? error.code }, 'Tunnel management operation failed');
-      throw failure(503, 'Tunnel management failed; check gateway logs. Changes may have been saved.');
+      throw createError(503, 'Tunnel management failed; check gateway logs. Changes may have been saved.');
     }
   }
 
@@ -78,9 +53,9 @@ export function createConnectionService({ Connection, User, api, host, disconnec
   }
 
   async function find(id) {
-    if (!uuidPattern.test(id)) throw failure(400, 'Invalid connection ID');
-    const row = await Connection.findByPk(id);
-    if (!row) throw failure(404, 'Connection not found');
+    if (!uuidPattern.test(id)) throw createError(400, 'Invalid connection ID');
+    const row = await connections.findById(id);
+    if (!row) throw createError(404, 'Connection not found');
     return row;
   }
 
@@ -94,23 +69,23 @@ export function createConnectionService({ Connection, User, api, host, disconnec
       }
       appliedCredentials.set(row.id, row.credential);
       if (row.syncStatus !== 'applied' || row.syncError) {
-        await row.update({ syncStatus: 'applied', syncError: null });
+        await connections.update(row, { syncStatus: 'applied', syncError: null });
         onChange();
       }
     } catch (error) {
       const message = 'Live V2Ray update failed; access is blocked until synchronization succeeds.';
-      await row.update({ syncStatus: 'error', syncError: message });
+      await connections.update(row, { syncStatus: 'error', syncError: message });
       disconnect(row.id);
       logger.error({
         connectionId: row.id, errorName: error.name, errorCode: error.original?.code ?? error.code,
       }, 'Tunnel credential synchronization failed');
       onChange();
-      throw failure(503, message);
+      throw createError(503, message);
     }
   }
 
   async function reconcile() {
-    const rows = await Connection.findAll();
+    const rows = await connections.all();
     let failed = false;
     for (const row of rows) {
       try {
@@ -140,38 +115,80 @@ export function createConnectionService({ Connection, User, api, host, disconnec
     }
   }
 
+  async function collectStats() {
+    try {
+      const sample = await api.stats();
+      const counters = new Map();
+      for (const counter of sample.counters) {
+        const match = /^user>>>connection-([a-f0-9-]+)>>>traffic>>>(uplink|downlink)$/.exec(counter.name);
+        if (!match || !uuidPattern.test(match[1])) continue;
+        const value = BigInt(counter.value);
+        if (value < 0n) throw new RangeError('V2Ray returned a negative user traffic counter');
+        const current = counters.get(match[1]) ?? { uploadBytes: '0', downloadBytes: '0' };
+        current[match[2] === 'uplink' ? 'uploadBytes' : 'downloadBytes'] = value.toString();
+        counters.set(match[1], current);
+      }
+      coreCounters = counters;
+      coreStats = { status: 'ready', sampledAt: sample.sampledAt, uptimeSeconds: sample.uptimeSeconds, error: null };
+    } catch (error) {
+      coreStats = {
+        ...coreStats,
+        status: 'error',
+        error: 'V2Ray user statistics are unavailable; previously collected totals may be stale. Check the internal API and ensure StatsService and user counters are enabled.',
+      };
+      logger.warn({ err: error }, 'V2Ray user statistics failed');
+    }
+    onChange();
+  }
+
+  async function scheduleStats() {
+    if (stopping) return;
+    pendingStats = collectStats();
+    try {
+      await pendingStats;
+    } finally {
+      pendingStats = null;
+      if (!stopping) {
+        statsTimer = setTimeout(scheduleStats, 5000);
+        statsTimer.unref();
+      }
+    }
+  }
+
   return {
-    async start() { await scheduleReconciliation(); },
+    async start() { await Promise.all([scheduleReconciliation(), scheduleStats()]); },
     async close() {
       stopping = true;
       clearTimeout(timer);
-      await queue;
+      clearTimeout(statsTimer);
+      await Promise.all([queue, pendingStats]);
       api.close();
     },
     async list() {
-      return guarded(async () => ({
-        connections: await Connection.findAll({ attributes: publicFields, order: [['createdAt', 'ASC']], raw: true }),
-        error: reconciliationError,
-      }));
+      return guarded(async () => {
+        const rows = await connections.list();
+        return {
+          connections: rows.map(row => ({
+            ...row,
+            coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
+          })),
+          error: reconciliationError,
+          coreStats: { ...coreStats },
+        };
+      });
     },
     create(userId) {
       return exclusive(async () => {
-        if (!uuidPattern.test(userId)) throw failure(400, 'Invalid user ID');
-        const owner = await User.findByPk(userId);
-        if (!owner) throw failure(404, 'User not found');
-        if (!owner.active) throw failure(409, 'Activate the dashboard account before creating its connection');
-        if (await Connection.findOne({ where: { userId } })) throw failure(409, 'This user already has a connection');
+        if (!uuidPattern.test(userId)) throw createError(400, 'Invalid user ID');
+        const owner = await users.findById(userId);
+        if (!owner) throw createError(404, 'User not found');
+        if (!owner.active) throw createError(409, 'Activate the dashboard account before creating its connection');
+        if (await connections.findByUserId(userId)) throw createError(409, 'This user already has a connection');
         const token = randomBytes(32).toString('hex');
-        let row;
-        try {
-          row = await Connection.create({
-            id: randomUUID(), userId, credential: randomUUID(), subscriptionTokenHash: tokenHash(token),
-            enabled: true, syncStatus: 'pending',
-          });
-        } catch (error) {
-          if (error.name === 'SequelizeUniqueConstraintError') throw failure(409, 'This user already has a connection');
-          throw error;
-        }
+        const row = await connections.create({
+          id: randomUUID(), userId, credential: randomUUID(), subscriptionTokenHash: tokenHash(token),
+          enabled: true, syncStatus: 'pending',
+        });
         onChange();
         await apply(row);
         return { connection: publicConnection(row), subscriptionUrl: subscriptionUrl(token) };
@@ -179,15 +196,15 @@ export function createConnectionService({ Connection, User, api, host, disconnec
     },
     change(id, action) {
       return exclusive(async () => {
-        if (!['pause', 'resume', 'reset', 'subscription'].includes(action)) throw failure(400, 'Unknown connection action');
+        if (!['pause', 'resume', 'reset', 'subscription'].includes(action)) throw createError(400, 'Unknown connection action');
         const row = await find(id);
         const token = ['reset', 'subscription'].includes(action) ? randomBytes(32).toString('hex') : null;
         if (action === 'subscription') {
-          await row.update({ subscriptionTokenHash: tokenHash(token) });
+          await connections.update(row, { subscriptionTokenHash: tokenHash(token) });
         } else {
           blocked.add(id);
           try {
-            await row.update({
+            await connections.update(row, {
               ...(action === 'reset' ? { credential: randomUUID(), subscriptionTokenHash: tokenHash(token) } : { enabled: action === 'resume' }),
               syncStatus: 'pending', syncError: null,
             });
@@ -206,18 +223,18 @@ export function createConnectionService({ Connection, User, api, host, disconnec
       const parsed = parseTunnelPath(path);
       if (!parsed) return null;
       return guarded(async () => {
-        const row = await Connection.findOne({ where: { credential: parsed.credential } });
+        const row = await connections.findByCredential(parsed.credential);
         if (!row || !row.enabled || row.syncStatus !== 'applied' || blocked.has(row.id)) return null;
         return { id: row.id, userId: row.userId, protocol: parsed.protocol };
       });
     },
     async subscription(token) {
-      if (!/^[a-f0-9]{64}$/.test(token)) throw failure(404, 'Subscription not found');
+      if (!/^[a-f0-9]{64}$/.test(token)) throw createError(404, 'Subscription not found');
       return guarded(async () => {
-        const row = await Connection.findOne({ where: { subscriptionTokenHash: tokenHash(token) } });
-        if (!row) throw failure(404, 'Subscription not found');
-        if (!row.enabled) throw failure(403, 'This connection is paused');
-        if (row.syncStatus !== 'applied' || blocked.has(row.id)) throw failure(503, 'This connection is awaiting synchronization');
+        const row = await connections.findBySubscriptionTokenHash(tokenHash(token));
+        if (!row) throw createError(404, 'Subscription not found');
+        if (!row.enabled) throw createError(403, 'This connection is paused');
+        if (row.syncStatus !== 'applied' || blocked.has(row.id)) throw createError(503, 'This connection is awaiting synchronization');
         return subscriptionContent(row, host);
       });
     },

@@ -1,4 +1,5 @@
 import { ClassicLevel } from 'classic-level';
+import createError from 'http-errors';
 
 export const RESOURCE_RANGES = {
   '5m': 5 * 60 * 1000,
@@ -102,7 +103,7 @@ class ResourceHistory {
 
   async read(range) {
     if (typeof range !== 'string' || !Object.hasOwn(RESOURCE_RANGES, range)) {
-      throw Object.assign(new Error('Invalid resource history range'), { status: 400 });
+      throw createError(400, 'Invalid resource history range');
     }
     const duration = RESOURCE_RANGES[range];
     const end = this.clock();

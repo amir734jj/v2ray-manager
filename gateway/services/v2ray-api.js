@@ -7,25 +7,39 @@ const root = protobuf.loadSync(fileURLToPath(new URL('./v2ray-api.proto', import
 const namespace = 'v2ray.core.app.proxyman.command';
 const type = name => root.lookupType(`${namespace}.${name}`);
 const encode = (name, value) => Buffer.from(type(name).encode(value).finish());
-const requestType = type('AlterInboundRequest');
-const responseType = type('AlterInboundResponse');
-const HandlerClient = grpc.makeGenericClientConstructor({
-  alterInbound: {
-    path: `/${namespace}.HandlerService/AlterInbound`,
+function rpcMethod(service, method, request, response) {
+  return {
+    path: `/${service}/${method}`,
     requestStream: false,
     responseStream: false,
-    requestSerialize: value => encode('AlterInboundRequest', value),
-    requestDeserialize: value => requestType.decode(value),
-    responseSerialize: value => encode('AlterInboundResponse', value),
-    responseDeserialize: value => responseType.decode(value),
-  },
+    requestSerialize: value => encode(request, value),
+    requestDeserialize: value => type(request).decode(value),
+    responseSerialize: value => encode(response, value),
+    responseDeserialize: value => type(response).decode(value),
+  };
+}
+const HandlerClient = grpc.makeGenericClientConstructor({
+  alterInbound: rpcMethod(`${namespace}.HandlerService`, 'AlterInbound', 'AlterInboundRequest', 'AlterInboundResponse'),
 }, 'HandlerService');
+const StatsClient = grpc.makeGenericClientConstructor({
+  queryStats: rpcMethod('v2ray.core.app.stats.command.StatsService', 'QueryStats', 'QueryStatsRequest', 'QueryStatsResponse'),
+  getSysStats: rpcMethod('v2ray.core.app.stats.command.StatsService', 'GetSysStats', 'SysStatsRequest', 'SysStatsResponse'),
+}, 'StatsService');
 const ports = { vless: 53217, vmess: 53218, trojan: 53219 };
 const typedMessage = (name, value) => ({ typeUrl: `types.v2fly.org/${name}`, value });
 
 export function createV2rayApi(address) {
   if (!address) throw new Error('V2RAY_API_ADDRESS is required');
   const client = new HandlerClient(address, grpc.credentials.createInsecure());
+  const statsClient = new StatsClient(address, grpc.credentials.createInsecure());
+  function readStats(method, request) {
+    return new Promise((resolve, reject) => {
+      statsClient[method](request, { deadline: Date.now() + 5000 }, (error, response) => {
+        if (error) reject(error);
+        else resolve(response);
+      });
+    });
+  }
   function alter(protocol, operation, value, expectedMessage) {
     if (!protocols.includes(protocol)) throw new TypeError('Unsupported tunnel protocol');
     return new Promise((resolve, reject) => {
@@ -55,6 +69,20 @@ export function createV2rayApi(address) {
       return alter(protocol, 'RemoveUserOperation', { email },
         `proxy/${protocol}${protocol === 'vmess' ? '/inbound' : ''}: User ${email} not found.`);
     },
-    close() { client.close(); },
+    async stats() {
+      const before = await readStats('getSysStats', {});
+      const response = await readStats('queryStats', { pattern: 'user>>>connection-', reset: false });
+      const after = await readStats('getSysStats', {});
+      if (after.uptime < before.uptime) throw new Error('V2Ray restarted while collecting statistics; retrying on the next sample');
+      return {
+        sampledAt: new Date().toISOString(),
+        uptimeSeconds: after.uptime,
+        counters: response.stat.map(counter => ({ name: counter.name, value: counter.value.toString() })),
+      };
+    },
+    close() {
+      client.close();
+      statsClient.close();
+    },
   };
 }

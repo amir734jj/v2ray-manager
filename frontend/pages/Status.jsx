@@ -5,12 +5,8 @@ import prettyBytes from 'pretty-bytes';
 import { api, errorMessage } from '../api.js';
 import Table from '../components/Table.jsx';
 import ResourceCharts from '../components/ResourceCharts.jsx';
+import Rate from '../components/TrafficRate.jsx';
 import { useResource } from '../useResource.js';
-
-function Rate({ value }) {
-  if (value === null) return 'Collecting...';
-  return `${prettyBytes(value, { binary: true })}/s`;
-}
 
 function Counters({ rows, countries = false }) {
   const visibleRows = rows.filter(row => row.active !== 0 || row.total !== 0 || row.errors !== 0);
