@@ -1,7 +1,6 @@
 import { useState } from 'preact/hooks';
 import prettyBytes from 'pretty-bytes';
 import { api, errorMessage } from '../api.js';
-import Table from '../components/Table.jsx';
 import TrafficRate from '../components/TrafficRate.jsx';
 import { useResource } from '../useResource.js';
 
@@ -56,48 +55,73 @@ function UserList() {
     {data?.tunnelError && <div class="alert alert-danger" role="alert">{data.tunnelError}</div>}
     {data?.coreStats?.error && <div class="alert alert-warning" role="alert">{data.coreStats.error}</div>}
     <p class="text-body-secondary">Subscription URLs contain private credentials. Share them only with their account owners.</p>
-    <p class="text-body-secondary">
+    <details class="text-body-secondary mb-3">
+      <summary>About gateway traffic and core totals</summary>
+    <p class="mt-2">
       Gateway counts are open sockets, not devices or proof of successful protocol authentication.
       Speeds and last observed socket traffic are sampled every five seconds and include WebSocket overhead.
       Connected since is the oldest currently open tunnel.
     </p>
-    <p class="text-body-secondary">
+    <p>
       Core totals measure traffic attributed to authenticated V2Ray credentials across all three protocols,
       not lifetime usage. They reset when V2Ray restarts; socket activity and core accounting are separate measurements.
     </p>
+    </details>
     {data?.coreStats?.sampledAt && <p class="text-body-secondary">
       Core snapshot: <Timestamp value={data.coreStats.sampledAt} />.
       {' '}Core uptime at snapshot: {data.coreStats.uptimeSeconds} seconds.
       {data.coreStats.status === 'error' && ' Displayed core totals are stale.'}
     </p>}
-    {data && <Table headings={['Username', 'Role', 'Status', 'Registered', 'Connection', 'Subscription URL', 'Open tunnels', 'Connected since', 'Gateway upload', 'Gateway download', 'Last observed traffic', 'Core upload total', 'Core download total', 'Actions']}>
-      {data.users.map(account => <tr key={account.id}>
-        <th scope="row">{account.username}</th><td>{account.admin ? 'Administrator' : 'Viewer'}</td>
-        <td>{account.active ? 'Active' : 'Pending approval'}</td><td>{account.createdAt}</td>
-        <td>{account.connection ? <>
-          <div>{account.connection.enabled ? 'Enabled' : 'Paused'} / {account.connection.syncStatus}</div>
-          {account.connection.syncError && <div class="text-danger" role="alert">{account.connection.syncError}</div>}
-        </> : 'Not created'}</td>
-        <td>{account.connection ? account.connection.subscriptionUrl ? <>
-          <input class="form-control mb-2" aria-label={`Private subscription URL for ${account.username}`}
-            value={account.connection.subscriptionUrl} readOnly onFocus={event => event.currentTarget.select()} />
-          <button class="btn btn-sm btn-outline-primary" onClick={() => copySubscription(account.connection.subscriptionUrl)}>
-            {copied === account.connection.subscriptionUrl ? 'Copied' : 'Copy URL'}
-          </button>
-        </> : <span>Older URL cannot be recovered. Choose Replace subscription URL once to display a new one here. The old URL will stop working.</span> : '-'}</td>
-        <td>{account.connection ? account.connection.gateway.openTunnels : '-'}</td>
-        <td>{account.connection ? <Timestamp value={account.connection.gateway.connectedSince} empty="No open tunnels" /> : '-'}</td>
-        <td class="text-nowrap">{account.connection ? <TrafficRate value={account.connection.gateway.traffic.uploadBytesPerSecond} /> : '-'}</td>
-        <td class="text-nowrap">{account.connection ? <TrafficRate value={account.connection.gateway.traffic.downloadBytesPerSecond} /> : '-'}</td>
-        <td>{account.connection ? <Timestamp value={account.connection.gateway.lastTrafficAt} empty="Not observed" /> : '-'}</td>
-        <td class="text-nowrap">{account.connection ? <CoreBytes value={account.connection.coreTraffic?.uploadBytes ?? null} status={data.coreStats?.status} /> : '-'}</td>
-        <td class="text-nowrap">{account.connection ? <CoreBytes value={account.connection.coreTraffic?.downloadBytes ?? null} status={data.coreStats?.status} /> : '-'}</td>
-        <td>
+    {data && <div class="d-grid gap-3">
+      {data.users.map(account => <article class="card" key={account.id} aria-labelledby={`user-${account.id}`}>
+        <div class="card-body">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div class="mw-100">
+              <h2 class="h5 mb-1 text-break" id={`user-${account.id}`}>{account.username}</h2>
+              <div class="small text-body-secondary">{account.admin ? 'Administrator' : 'Viewer'}</div>
+              <div class="small text-body-secondary">Registered <Timestamp value={account.createdAt} /></div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <span class={`badge ${account.active ? 'text-bg-success' : 'text-bg-warning'}`}>
+                {account.active ? 'Active' : 'Pending approval'}
+              </span>
+              {account.connection && <span class="badge text-bg-secondary">
+                {account.connection.enabled ? 'Enabled' : 'Paused'} / {account.connection.syncStatus}
+              </span>}
+            </div>
+          </div>
+          {account.connection?.syncError && <div class="alert alert-danger text-break" role="alert">{account.connection.syncError}</div>}
+          {account.connection ? <>
+            <div class="mb-3">
+              <div class="form-label fw-semibold">Private subscription URL</div>
+              {account.connection.subscriptionUrl ? <div class="d-flex flex-column flex-sm-row gap-2">
+                <input id={`subscription-${account.id}`} class="form-control flex-grow-1" style={{ minWidth: 0 }}
+                  aria-label={`Private subscription URL for ${account.username}`}
+                  value={account.connection.subscriptionUrl} readOnly onFocus={event => event.currentTarget.select()} />
+                <button class="btn btn-outline-primary flex-shrink-0" onClick={() => copySubscription(account.connection.subscriptionUrl)}>
+                  {copied === account.connection.subscriptionUrl ? 'Copied' : 'Copy URL'}
+                </button>
+              </div> : <p class="small text-body-secondary mb-0">
+                This older URL cannot be recovered. Replace it once to display a new URL here; the old URL will stop working.
+              </p>}
+            </div>
+            <dl class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3 mb-0">
+              <div class="col"><dt class="small text-body-secondary">Open tunnels</dt><dd class="mb-0">{account.connection.gateway.openTunnels}</dd></div>
+              <div class="col"><dt class="small text-body-secondary">Gateway upload</dt><dd class="mb-0"><TrafficRate value={account.connection.gateway.traffic.uploadBytesPerSecond} /></dd></div>
+              <div class="col"><dt class="small text-body-secondary">Gateway download</dt><dd class="mb-0"><TrafficRate value={account.connection.gateway.traffic.downloadBytesPerSecond} /></dd></div>
+              <div class="col"><dt class="small text-body-secondary">Last observed traffic</dt><dd class="mb-0"><Timestamp value={account.connection.gateway.lastTrafficAt} empty="Not observed" /></dd></div>
+              <div class="col"><dt class="small text-body-secondary">Connected since</dt><dd class="mb-0"><Timestamp value={account.connection.gateway.connectedSince} empty="No open tunnels" /></dd></div>
+              <div class="col"><dt class="small text-body-secondary">Core upload total</dt><dd class="mb-0"><CoreBytes value={account.connection.coreTraffic?.uploadBytes ?? null} status={data.coreStats?.status} /></dd></div>
+              <div class="col"><dt class="small text-body-secondary">Core download total</dt><dd class="mb-0"><CoreBytes value={account.connection.coreTraffic?.downloadBytes ?? null} status={data.coreStats?.status} /></dd></div>
+            </dl>
+          </> : <p class="text-body-secondary mb-0">Connection not created.</p>}
+        </div>
+        <div class="card-footer d-flex flex-wrap gap-2">
           {!account.active && <button class="btn btn-sm btn-success" disabled={busy}
             onClick={() => perform(`/api/users/${account.id}/activate`)}>Activate</button>}
           {account.active && !account.connection && <button class="btn btn-sm btn-primary" disabled={busy}
             onClick={() => perform(`/api/users/${account.id}/connection`)}>Create connection</button>}
-          {account.connection && <div class="d-flex flex-wrap gap-2">
+          {account.connection && <>
             <button class="btn btn-sm btn-warning" disabled={busy}
               onClick={() => change(account, account.connection.enabled ? 'pause' : 'resume')}>
               {account.connection.enabled ? 'Pause' : 'Resume'}
@@ -106,10 +130,10 @@ function UserList() {
               onClick={() => change(account, 'reset')}>Reset credentials</button>
             <button class="btn btn-sm btn-outline-primary" disabled={busy}
               onClick={() => change(account, 'subscription')}>Replace subscription URL</button>
-          </div>}
-        </td>
-      </tr>)}
-    </Table>}
+          </>}
+        </div>
+      </article>)}
+    </div>}
   </>;
 }
 
