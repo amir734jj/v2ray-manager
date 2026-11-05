@@ -13,6 +13,7 @@ export const RESOURCE_RANGES = {
 const RETENTION_MS = RESOURCE_RANGES['24h'];
 const BUCKETS = 300;
 const CLEANUP_BATCH = 256;
+const TIMESTAMP_KEY_WIDTH = String(Number.MAX_SAFE_INTEGER).length;
 const REQUIRED_METRICS = ['cpuPercent', 'rssBytes', 'heapUsedBytes', 'heapTotalBytes'];
 const OPTIONAL_METRICS = [
   'uploadBytesPerSecond', 'downloadBytesPerSecond',
@@ -21,7 +22,11 @@ const OPTIONAL_METRICS = [
 const METRICS = [...REQUIRED_METRICS, ...OPTIONAL_METRICS];
 
 function keyFor(timestamp) {
-  return String(Math.max(0, Math.floor(timestamp))).padStart(16, '0');
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
+    throw new RangeError('Resource history keys require a non-negative integer timestamp');
+  }
+  // Fixed-width keys sort chronologically in LevelDB.
+  return String(timestamp).padStart(TIMESTAMP_KEY_WIDTH, '0');
 }
 
 function createSeries() {
@@ -84,7 +89,7 @@ class ResourceHistory {
     const operations = [];
     for await (const key of this.database.keys({
       gte: keyFor(0),
-      lt: keyFor(this.clock() - RETENTION_MS),
+      lt: keyFor(Math.max(0, this.clock() - RETENTION_MS)),
       limit: CLEANUP_BATCH,
       fillCache: false,
     })) {
@@ -114,7 +119,7 @@ class ResourceHistory {
     const series = createSeries();
     let count = 0;
     for await (const [, sample] of this.database.iterator({
-      gte: keyFor(start), lte: keyFor(end), fillCache: false,
+      gte: keyFor(Math.max(0, start)), lte: keyFor(end), fillCache: false,
     })) {
       addToSeries(series, sample, start, duration);
       count++;
