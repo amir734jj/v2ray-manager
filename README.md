@@ -54,6 +54,12 @@ Older connections store only a token hash: their URLs keep working, but an
 administrator must replace the URL once to make it displayable.
 Deleting a subscription requires confirmation, closes its tunnels, and permanently
 removes its credentials and URL without affecting other subscriptions.
+Set a **Concurrent IP limit** when creating a subscription or edit it later.
+`0` means unlimited (the default for new and existing subscriptions). The limit
+counts active public IPs across all three protocols, not physical devices.
+New IPs are rejected at the limit; existing IPs can keep opening tunnels.
+Lowering the limit does not disconnect existing IPs. Devices sharing a public
+IP count together, and one device can use more than one IP.
 
 Existing account-linked subscriptions are migrated automatically to independent
 subscriptions named after their former account. Their credentials and URLs stay
@@ -69,7 +75,7 @@ the StatsService and user counters.
 
 The deployment no longer accepts `V2RAY_UUID` or shared FTP profiles. Existing
 clients need new private subscriptions after upgrading. Remove old FTP exports
-manually. Expiration and device limits are not implemented yet.
+manually. Expiration and physical-device identification are not implemented.
 
 ## Dashboard and history
 

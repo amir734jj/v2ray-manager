@@ -65,6 +65,7 @@ try {
     logger,
     onChange: () => gatewayEvents.emit('connections'),
     disconnect: gatewayProxy.disconnectTunnel,
+    countIps: gatewayProxy.countTunnelIps,
   });
   await tunnels.start();
   if (workerFailure) throw workerFailure;

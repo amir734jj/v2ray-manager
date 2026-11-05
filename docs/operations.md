@@ -179,6 +179,24 @@ The administrator's **Subscriptions** page provides:
   remove credentials from all three V2Ray protocols, and permanently delete the
   record. Its URL and cached profiles stop working. If cleanup fails, an error
   is shown and the record stays disabled; retry deletion after resolving the error.
+- **Concurrent IP limit:** set at creation or edit with **Save limit**.
+  `0` means unlimited; existing subscriptions are migrated with this default.
+  The gateway counts distinct normalized client IPs with open tunnels for that
+  subscription across all three protocol workers, including pending handshakes.
+  A new IP receives HTTP 429 when the limit is reached; existing IPs may open
+  more tunnels. A slot is released when that IP's last tunnel closes.
+  Lowering the limit keeps existing tunnels/IPs connected and rejects new IPs
+  until the active count drops below the new limit. Pausing or deleting releases
+  the subscription's slots. Other subscriptions have independent limits.
+
+IP limits are not physical-device limits: devices behind NAT share a slot,
+and IPv4/IPv6 or changing addresses can use multiple slots for one device.
+Client IPs come from the peer socket, or validated `CF-Connecting-IP` when
+`GATEWAY_TRUST_CLOUDFLARE_HEADERS=true`. Behind Cloudflare, enable that setting
+only with origin access restricted to trusted proxies; otherwise the limit
+counts proxy IPs or can be bypassed with forged headers. Limited subscriptions
+reject tunnels if no client IP is available. The limit is enforced at the gateway,
+not inside V2Ray; keep direct V2Ray and worker ports inaccessible.
 
 Subscription URLs have the form `https://<V2RAY_HOST>/subscriptions/<token>`.
 They return a Base64-encoded list of share links, without dashboard login.
@@ -197,7 +215,7 @@ from caching, browser challenges, and external dashboard-login requirements.
 
 Sequelize creates `gateway_tunnel_connections` in PostgreSQL. It stores the
 subscription name, tunnel credential, subscription token and hash, desired enabled
-state, and synchronization status/error. Tunnel credentials and subscription
+state, concurrent IP limit, and synchronization status/error. Tunnel credentials and subscription
 tokens are stored as recoverable secrets; restrict and back up this database
 accordingly. Do not delete
 connection records directly: use Pause to revoke runtime access or Delete subscription
@@ -214,7 +232,7 @@ No container restart or Docker socket is needed. A private credential-bearing
 gateway path lets the gateway close only the affected subscription's sockets and reject
 cached profiles immediately. An empty subscription alone would not revoke access.
 The credentials and private paths are bearer secrets, not device identities.
-Expiration, quotas, and device limits are not implemented in this version.
+Expiration, traffic quotas, and physical-device identification are not implemented.
 
 The gateway reconciles desired database state at startup and every 15 seconds,
 restoring credentials after V2Ray restarts. Failed updates return HTTP 503 and show
@@ -270,12 +288,19 @@ the existing shared sampler, and do not add per-subscription timers or history s
 
 Admin-only, same-origin POST endpoints:
 
-- `/api/connections` with JSON body `{ "name": "Subscription name" }`
+- `/api/connections` with JSON body `{ "name": "Subscription name", "maxConcurrentIps": 0 }`
+  (`maxConcurrentIps` is optional and defaults to `0`)
 - `/api/connections/:id/pause`
 - `/api/connections/:id/resume`
 - `/api/connections/:id/reset`
 - `/api/connections/:id/subscription`
 - `/api/connections/:id/delete` (returns `{ "deleted": true }` after cleanup)
+- `/api/connections/:id/limits` with JSON body `{ "maxConcurrentIps": 2 }`
+  (required integer from `0` to `2147483647`; `0` disables the limit)
+
+Administrator subscription lists and realtime snapshots include `maxConcurrentIps`
+and `activeIps`. Limits persist in PostgreSQL; active slots are held only while
+gateway sockets are open and are cleared on restart.
 
 The old `/api/users/:id/connection` creation endpoint is removed. Use the
 admin-only `GET /api/connections` endpoint to list independent subscriptions.

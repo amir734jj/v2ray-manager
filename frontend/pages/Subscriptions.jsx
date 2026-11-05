@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import prettyBytes from 'pretty-bytes';
 import { api, errorMessage } from '../api.js';
 import TrafficRate from '../components/TrafficRate.jsx';
@@ -13,19 +13,45 @@ function CoreBytes({ value, status }) {
   return <span title={`${value} bytes`}>{prettyBytes(Number(value), { binary: true })}</span>;
 }
 
+function IpLimitForm({ connection, busy, onSave }) {
+  const [limit, setLimit] = useState(String(connection.maxConcurrentIps));
+  useEffect(() => setLimit(String(connection.maxConcurrentIps)), [connection.maxConcurrentIps]);
+  return <form class="mt-3" onSubmit={event => {
+    event.preventDefault();
+    onSave(`/api/connections/${connection.id}/limits`, { maxConcurrentIps: Number(limit) });
+  }}>
+    <label class="form-label" for={`ip-limit-${connection.id}`}>Concurrent IP limit</label>
+    <div class="d-flex flex-column flex-sm-row gap-2">
+      <input id={`ip-limit-${connection.id}`} class="form-control" type="number" min="0" max="2147483647" step="1"
+        required value={limit} disabled={busy} aria-describedby={`ip-limit-help-${connection.id}`}
+        onInput={event => setLimit(event.currentTarget.value)} />
+      <button class="btn btn-outline-primary flex-shrink-0" type="submit"
+        disabled={busy || Number(limit) === connection.maxConcurrentIps}>Save limit</button>
+    </div>
+    <div class="form-text" id={`ip-limit-help-${connection.id}`}>
+      {connection.activeIps} active IPs / {connection.maxConcurrentIps === 0 ? 'unlimited' : connection.maxConcurrentIps}.
+      {' '}0 means unlimited. Existing IPs stay connected when the limit is lowered.
+    </div>
+  </form>;
+}
+
 function SubscriptionList() {
   const { data, error: refreshError, loading, refresh } = useResource('/api/connections');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(null);
   const [name, setName] = useState('');
+  const [maxConcurrentIps, setMaxConcurrentIps] = useState('0');
 
   async function perform(path, body) {
     setBusy(true);
     setError('');
     try {
       await api.post(path, body);
-      if (path === '/api/connections') setName('');
+      if (path === '/api/connections') {
+        setName('');
+        setMaxConcurrentIps('0');
+      }
       await refresh();
     } catch (failure) {
       setError(errorMessage(failure));
@@ -57,17 +83,28 @@ function SubscriptionList() {
     <p class="text-body-secondary">Create as many independent subscriptions as you need. No dashboard user account is required.</p>
     <form class="d-flex flex-column flex-sm-row align-items-sm-end gap-2 mb-4" onSubmit={event => {
       event.preventDefault();
-      perform('/api/connections', { name });
+      perform('/api/connections', { name, maxConcurrentIps: Number(maxConcurrentIps) });
     }}>
       <div class="flex-grow-1">
         <label class="form-label" for="subscription-name">Subscription name</label>
         <input id="subscription-name" class="form-control" value={name} required maxLength={128}
           disabled={busy} onInput={event => setName(event.currentTarget.value)} />
       </div>
+      <div>
+        <label class="form-label" for="subscription-ip-limit">Concurrent IP limit</label>
+        <input id="subscription-ip-limit" class="form-control" type="number" min="0" max="2147483647" step="1"
+          required value={maxConcurrentIps} disabled={busy} aria-describedby="subscription-ip-limit-help"
+          onInput={event => setMaxConcurrentIps(event.currentTarget.value)} />
+      </div>
       <button class="btn btn-primary flex-shrink-0" type="submit" disabled={busy || !name.trim()}>
         Create subscription
       </button>
     </form>
+    <p class="text-body-secondary" id="subscription-ip-limit-help">
+      Limits count concurrent public IP addresses across all three protocols, not physical devices.
+      Devices sharing a router may count as one IP; one device may use multiple IPs. Use 0 for unlimited.
+      New IPs are rejected at the limit until an active IP closes all its tunnels.
+    </p>
     {loading && <p role="status">Loading subscriptions...</p>}
     {data?.tunnelError && <div class="alert alert-danger" role="alert">{data.tunnelError}</div>}
     {data?.coreStats?.error && <div class="alert alert-warning" role="alert">{data.coreStats.error}</div>}
@@ -127,6 +164,7 @@ function SubscriptionList() {
               <div class="col"><dt class="small text-body-secondary">Core upload total</dt><dd class="mb-0"><CoreBytes value={connection.coreTraffic?.uploadBytes ?? null} status={data.coreStats?.status} /></dd></div>
               <div class="col"><dt class="small text-body-secondary">Core download total</dt><dd class="mb-0"><CoreBytes value={connection.coreTraffic?.downloadBytes ?? null} status={data.coreStats?.status} /></dd></div>
             </dl>
+            <IpLimitForm connection={connection} busy={busy} onSave={perform} />
         </div>
         <div class="card-footer d-flex flex-wrap gap-2">
             <button class="btn btn-sm btn-warning" disabled={busy}

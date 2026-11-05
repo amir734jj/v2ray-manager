@@ -2,7 +2,7 @@ import httpProxy from 'http-proxy-3';
 import { parsePort } from '../services/config.js';
 import { createGatewayHandler } from './gateway.js';
 import { createTunnelHandler } from './tunnels.js';
-import { disconnectTunnelSockets } from './sockets.js';
+import { activeTunnelIps, disconnectTunnelSockets } from './sockets.js';
 import { logUpstreamTraffic } from './upstream-traffic.js';
 
 export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, trustCloudflareHeaders = false, logTraffic = true }) {
@@ -29,6 +29,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
 
   return {
     disconnectTunnel: id => disconnectTunnelSockets(sockets, id),
+    countTunnelIps: id => activeTunnelIps(sockets, id).size,
     blocklist: {
       list: blocklist.list,
       async block(value) {

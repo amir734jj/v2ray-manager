@@ -6,3 +6,12 @@ export function disconnectTunnelSockets(sockets, id) {
     }
   }
 }
+export function activeTunnelIps(sockets, id) {
+  const ips = new Set();
+  for (const [socket, connection] of sockets) {
+    if (!socket.destroyed && !connection?.blocked && connection?.client.tunnelId === id && connection.client.ip) {
+      ips.add(connection.client.ip);
+    }
+  }
+  return ips;
+}

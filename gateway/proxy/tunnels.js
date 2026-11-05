@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import { MAX_USER_AGENT_LENGTH, trackConnection } from '../services/status.js';
 import { normalizeIp } from '../services/blocklist.js';
 import { parseTunnelPath } from './paths.js';
+import { activeTunnelIps } from './sockets.js';
 
 export function createTunnelHandler({
   tunnels, routes, blocklist, logger, sockets, wsConnections, proxy, trustCloudflareHeaders = false,
@@ -53,6 +54,21 @@ export function createTunnelHandler({
       logger.warn({ ...metadata, protocol: tunnel.protocol }, 'Gateway connection blocked');
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 8\r\n\r\nBlocked\n');
       return;
+    }
+    if (tunnel.maxConcurrentIps > 0) {
+      if (!metadata.ip) {
+        logger.warn({ tunnelId: tunnel.id, protocol: tunnel.protocol }, 'Gateway limited connection rejected: client IP unavailable');
+        socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+        return;
+      }
+      const ips = activeTunnelIps(sockets, tunnel.id);
+      if (!ips.has(metadata.ip) && ips.size >= tunnel.maxConcurrentIps) {
+        logger.warn({
+          tunnelId: tunnel.id, protocol: tunnel.protocol, maxConcurrentIps: tunnel.maxConcurrentIps,
+        }, 'Gateway concurrent IP limit reached');
+        socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+        return;
+      }
     }
     const client = {
       ...metadata,

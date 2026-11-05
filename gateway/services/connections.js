@@ -7,6 +7,13 @@ import { parseTunnelPath } from '../proxy/paths.js';
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
 
+function validateIpLimit(value) {
+  if (!Number.isInteger(value) || value < 0 || value > 2147483647) {
+    throw createError(400, 'Concurrent IP limit must be a whole number from 0 to 2147483647; use 0 for unlimited');
+  }
+  return value;
+}
+
 export function subscriptionContent(connection, host) {
   const config = {
     inbounds: protocols.map(protocol => ({
@@ -19,7 +26,7 @@ export function subscriptionContent(connection, host) {
   return Buffer.from(Object.values(createConnectionUrls(config, host)).join('\n') + '\n').toString('base64');
 }
 
-export function createConnectionService({ connections, api, host, disconnect, logger, onChange = () => {} }) {
+export function createConnectionService({ connections, api, host, disconnect, countIps, logger, onChange = () => {} }) {
   validateHost(host);
   let queue = Promise.resolve();
   let stopping = false;
@@ -170,6 +177,7 @@ export function createConnectionService({ connections, api, host, disconnect, lo
         return {
           connections: rows.map(row => ({
             ...publicConnection(row),
+            activeIps: countIps(row.id),
             subscriptionUrl: row.subscriptionToken ? subscriptionUrl(row.subscriptionToken) : null,
             coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
           })),
@@ -178,27 +186,30 @@ export function createConnectionService({ connections, api, host, disconnect, lo
         };
       });
     },
-    create(name) {
+    create(name, maxConcurrentIps = 0) {
       return exclusive(async () => {
         if (typeof name !== 'string' || !name.trim() || name.trim().length > 128) {
           throw createError(400, 'Subscription name must contain 1-128 characters');
         }
+        validateIpLimit(maxConcurrentIps);
         const token = randomUUID();
         const row = await connections.create({
           id: randomUUID(), name: name.trim(), credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
-          enabled: true, syncStatus: 'pending',
+          enabled: true, syncStatus: 'pending', maxConcurrentIps,
         });
         onChange();
         await apply(row);
         return { connection: publicConnection(row), subscriptionUrl: subscriptionUrl(token) };
       });
     },
-    change(id, action) {
+    change(id, action, body) {
       return exclusive(async () => {
-        if (!['pause', 'resume', 'reset', 'subscription', 'delete'].includes(action)) throw createError(400, 'Unknown connection action');
+        if (!['pause', 'resume', 'reset', 'subscription', 'delete', 'limits'].includes(action)) throw createError(400, 'Unknown connection action');
         const row = await find(id);
         const token = ['reset', 'subscription'].includes(action) ? randomUUID() : null;
-        if (action === 'subscription') {
+        if (action === 'limits') {
+          await connections.update(row, { maxConcurrentIps: validateIpLimit(body?.maxConcurrentIps) });
+        } else if (action === 'subscription') {
           await connections.update(row, { subscriptionTokenHash: tokenHash(token), subscriptionToken: token });
         } else {
           blocked.add(id);
@@ -232,7 +243,7 @@ export function createConnectionService({ connections, api, host, disconnect, lo
       return guarded(async () => {
         const row = await connections.findByCredential(parsed.credential);
         if (!row || !row.enabled || row.syncStatus !== 'applied' || blocked.has(row.id)) return null;
-        return { id: row.id, protocol: parsed.protocol };
+        return { id: row.id, protocol: parsed.protocol, maxConcurrentIps: row.maxConcurrentIps };
       });
     },
     async subscription(token) {

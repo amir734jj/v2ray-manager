@@ -1,13 +1,14 @@
 import { DataTypes } from 'sequelize';
 import createError from 'http-errors';
 
-const publicFields = ['id', 'name', 'enabled', 'syncStatus', 'syncError', 'createdAt'];
+const publicFields = ['id', 'name', 'maxConcurrentIps', 'enabled', 'syncStatus', 'syncError', 'createdAt'];
 export const publicConnection = row => Object.fromEntries(publicFields.map(field => [field, row[field]]));
 
-export async function initializeTunnelConnections(database) {
+export async function initializeTunnelConnections(database, User) {
   const Connection = database.define('TunnelConnection', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     name: { type: DataTypes.STRING(128), allowNull: false },
+    maxConcurrentIps: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
     credential: { type: DataTypes.UUID, allowNull: false, unique: true },
     subscriptionTokenHash: { type: DataTypes.STRING(64), allowNull: false, unique: true },
     subscriptionToken: { type: DataTypes.STRING(64), allowNull: true },
@@ -18,17 +19,19 @@ export async function initializeTunnelConnections(database) {
   await Connection.sync();
   const queryInterface = database.getQueryInterface();
   const columns = await queryInterface.describeTable('gateway_tunnel_connections');
-  if (!columns.name || columns.userId || !columns.subscriptionToken) {
+  if (!columns.name || columns.userId || !columns.subscriptionToken || !columns.maxConcurrentIps) {
     await database.transaction(async transaction => {
       if (!columns.name) {
         await queryInterface.addColumn('gateway_tunnel_connections', 'name', {
           type: DataTypes.STRING(128), allowNull: false, defaultValue: 'Subscription',
         }, { transaction });
         if (columns.userId) {
-          await database.query(
-            'UPDATE "gateway_tunnel_connections" AS connection SET "name" = account."username" FROM "gateway_users" AS account WHERE connection."userId" = account."id"',
-            { transaction },
-          );
+          const users = await User.findAll({ attributes: ['id', 'username'], raw: true, transaction });
+          for (const user of users) {
+            await queryInterface.bulkUpdate('gateway_tunnel_connections', { name: user.username }, {
+              userId: user.id,
+            }, { transaction });
+          }
         }
       }
       if (columns.userId) {
@@ -37,6 +40,11 @@ export async function initializeTunnelConnections(database) {
       if (!columns.subscriptionToken) {
         await queryInterface.addColumn('gateway_tunnel_connections', 'subscriptionToken', {
           type: DataTypes.STRING(64), allowNull: true,
+        }, { transaction });
+      }
+      if (!columns.maxConcurrentIps) {
+        await queryInterface.addColumn('gateway_tunnel_connections', 'maxConcurrentIps', {
+          type: DataTypes.INTEGER, allowNull: false, defaultValue: 0,
         }, { transaction });
       }
     });

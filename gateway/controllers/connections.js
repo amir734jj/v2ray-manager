@@ -10,11 +10,11 @@ export function createConnectionsController({ tunnels, auth }) {
   });
   router.post('/api/connections', auth.requireUser, auth.requireAdmin, sameOrigin, express.json({ limit: '2kb' }), async (request, response) => {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
-    response.status(201).json(await tunnels.create(request.body?.name));
+    response.status(201).json(await tunnels.create(request.body?.name, request.body?.maxConcurrentIps));
   });
-  router.post('/api/connections/:id/:action', auth.requireUser, auth.requireAdmin, sameOrigin, async (request, response) => {
+  router.post('/api/connections/:id/:action', auth.requireUser, auth.requireAdmin, sameOrigin, express.json({ limit: '2kb' }), async (request, response) => {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
-    response.json(await tunnels.change(request.params.id, request.params.action));
+    response.json(await tunnels.change(request.params.id, request.params.action, request.body));
   });
   return router;
 }
