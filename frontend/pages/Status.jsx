@@ -114,8 +114,7 @@ export default function Status({ user }) {
             <th scope="row">{group.ip}</th>
             <td><IpLocation details={group.ipDetails} countries={group.countries} /></td>
             <td>{group.ipDetails?.status === 'ready'
-              ? <>{group.ipDetails.isp || group.ipDetails.organization || 'Unknown'}
-                {group.ipDetails.asn !== null && <div class="small text-body-secondary">AS{group.ipDetails.asn}</div>}</>
+              ? group.ipDetails.isp || group.ipDetails.organization || 'Unknown'
               : group.ipDetails?.status === 'loading' ? 'Looking up...' : 'Unavailable'}</td>
             <td>{group.protocols.join(', ')}</td>
             <td>{group.active}
@@ -125,12 +124,13 @@ export default function Status({ user }) {
             </td>
             <td class="text-nowrap"><Rate value={group.traffic.uploadBytesPerSecond} /></td>
             <td class="text-nowrap"><Rate value={group.traffic.downloadBytesPerSecond} /></td>
-            <td><button class="btn btn-sm btn-outline-secondary" aria-expanded={expandedIp === group.ip} onClick={() => {
+            <td><button class="btn btn-sm btn-outline-secondary text-nowrap" aria-expanded={expandedIp === group.ip}
+              aria-label={`${expandedIp === group.ip ? 'Hide' : 'View'} connections for ${group.ip}`} onClick={() => {
               const ip = expandedIp === group.ip ? null : group.ip;
               setExpandedIp(ip);
               history.replaceState(null, '', `${location.pathname}${ip ? `?client=${encodeURIComponent(ip)}` : ''}#active-clients`);
-            }}>{expandedIp === group.ip ? 'Hide connections' : 'View connections'}</button></td>
-            {user.admin && status.blocklistAvailable && <td><button class="btn btn-sm btn-outline-danger" disabled={busy}
+            }}>{expandedIp === group.ip ? 'Hide' : 'View'}</button></td>
+            {user.admin && status.blocklistAvailable && <td><button class="btn btn-sm btn-outline-danger text-nowrap" disabled={busy}
               onClick={() => block(group.ip)}>Block IP</button></td>}
           </tr>
           {expandedIp === group.ip && <tr><td colSpan={user.admin && status.blocklistAvailable ? 9 : 8}>

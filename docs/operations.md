@@ -277,7 +277,7 @@ apply locally generated files.
   headers, or payloads are stored in status memory. When details are omitted,
   the page warns that IP groups cover only displayed sockets; protocol/country
   totals still count all connections.
-  IP groups also show approximate city/region/country, ISP and ASN from
+  IP groups also show approximate city/region/country and ISP names from
   `https://ipwho.is/<IP>`; expand a group for organization, timezone, postal code
   and approximate coordinates. These lookups send public client IPs to ipwho.is
   from the gateway, only when status is viewed. `ipaddr.js` classifies addresses;
