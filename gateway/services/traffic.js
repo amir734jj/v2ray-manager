@@ -1,3 +1,5 @@
+import minBy from 'lodash/minBy.js';
+
 export function createTrafficMeter({ now = () => performance.now(), wallNow = () => Date.now(), upstream = false } = {}) {
   const sockets = new Map();
   const groups = new Map();
@@ -86,8 +88,7 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
     socket.once('close', () => {
       const current = socketTotals(socket, baseline);
       if (baseline.group) {
-        const connectedTimes = [...baseline.group.sockets.values()].map(item => item.connectedAt);
-        baseline.group.lastConnectedSince = connectedTimes.sort()[0];
+        baseline.group.lastConnectedSince = minBy([...baseline.group.sockets.values()], 'connectedAt')?.connectedAt;
         observeGroupTraffic(baseline, current, new Date(wallNow()).toISOString());
         baseline.group.closedUploadBytes += current.uploadBytes;
         baseline.group.closedDownloadBytes += current.downloadBytes;
@@ -149,12 +150,7 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
 
   function groupSnapshot(id) {
     const group = groups.get(id);
-    let connectedSince = null;
-    if (group) {
-      for (const baseline of group.sockets.values()) {
-        if (connectedSince === null || baseline.connectedAt < connectedSince) connectedSince = baseline.connectedAt;
-      }
-    }
+    const connectedSince = minBy([...(group?.sockets.values() ?? [])], 'connectedAt')?.connectedAt ?? null;
     return {
       openTunnels: group?.sockets.size ?? 0,
       connectedSince,

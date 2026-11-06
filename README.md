@@ -44,6 +44,10 @@ creating or activating dashboard accounts. **Users** manages dashboard access
 only. Each subscription has its own credentials, URL, controls, and traffic
 statistics across VLESS, VMess, and Trojan.
 
+Each subscription response shuffles the link order without changing credentials
+or connection settings. VMess keeps its original embedded `vmess-ws` name and
+has no URL fragment.
+
 Administrators can **Pause**, **Resume**, **Reset credentials**, **Delete subscription**, or
 **Replace subscription URL** from **Subscriptions**. Pausing closes only that subscription's
 tunnels; changes are applied live without restarting V2Ray or other users.

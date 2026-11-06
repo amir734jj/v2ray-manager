@@ -1,6 +1,8 @@
 import { join } from 'node:path';
 import { DataTypes, Op, Sequelize } from 'sequelize';
 import createError from 'http-errors';
+import clamp from 'lodash/clamp.js';
+import mapValues from 'lodash/mapValues.js';
 import { createTrafficUsage } from './traffic-usage.js';
 import { createSubscriptionActivity } from './subscription-activity.js';
 
@@ -42,7 +44,7 @@ function validateSample(sample) {
 
 function addToSeries(series, sample, start, duration) {
   validateSample(sample);
-  const bucketIndex = Math.min(BUCKETS - 1, Math.max(0, Math.floor((sample.timestamp - start) / duration * BUCKETS)));
+  const bucketIndex = clamp(Math.floor((sample.timestamp - start) / duration * BUCKETS), 0, BUCKETS - 1);
   for (const metric of METRICS) {
     const value = sample[metric];
     if (value === undefined) continue;
@@ -61,14 +63,13 @@ function addToSeries(series, sample, start, duration) {
 }
 
 function finishSeries(series) {
-  return Object.fromEntries(METRICS.map(metric => {
-    const { min, max, count, buckets } = series[metric];
+  return mapValues(series, ({ min, max, count, buckets }) => {
     const points = [...buckets.values()].flatMap(bucket => {
       if (bucket.min.timestamp === bucket.max.timestamp) return [bucket.min];
       return [bucket.min, bucket.max].sort((a, b) => a.timestamp - b.timestamp);
     });
-    return [metric, { min, max, count, points }];
-  }));
+    return { min, max, count, points };
+  });
 }
 
 class ResourceHistory {

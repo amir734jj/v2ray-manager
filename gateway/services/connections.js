@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import createError from 'http-errors';
+import shuffle from 'lodash/shuffle.js';
 import { createConnectionUrls, protocols, validateHost } from '@v2ray-manager/generator';
 import { publicConnection } from '../database/postgres/tunnel-connections.js';
 import { parseTunnelPath } from '../proxy/paths.js';
@@ -30,7 +31,8 @@ export function subscriptionContent(connection, host) {
       streamSettings: { network: 'ws', wsSettings: { path: `/${protocol}/${connection.credential}` } },
     })),
   };
-  return Buffer.from(Object.values(createConnectionUrls(config, host)).join('\n') + '\n').toString('base64');
+  const links = shuffle(Object.values(createConnectionUrls(config, host)));
+  return Buffer.from(links.join('\n') + '\n').toString('base64');
 }
 
 export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, subscriptionActivity, activitySnapshot, logger, onChange = () => {} }) {
