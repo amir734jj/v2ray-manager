@@ -81,6 +81,9 @@ oldest open tunnel time, upload/download speed, and last observed socket traffic
 The Subscriptions page shows these statistics, connected IPs, and accumulated
 core upload/download totals alongside management controls, without explanatory panels.
 When no tunnels are open, saved totals and previous activity remain visible.
+Each card shows a green **Online** badge while at least one gateway tunnel is open,
+or a red **Offline** badge when none are open, separately from Enabled/Paused.
+If live updates fail, the badge turns gray and reads **Status unknown** until updates resume.
 These are socket measurements, not device counts or proof of authentication.
 Separate V2Ray totals retain accumulated traffic attributed to authenticated credentials,
 persisted with Sequelize in embedded SQLite across gateway and V2Ray restarts.

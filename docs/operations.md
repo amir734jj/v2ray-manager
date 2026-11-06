@@ -270,6 +270,11 @@ two separate measurements. Subscription cards show these statistics, connected
 IPs, management controls, URLs, and status without explanatory panels. Saved
 traffic totals and previous activity remain visible when no tunnels are open:
 
+- Activity badges show green **Online** for one or more open gateway tunnels,
+  red **Offline** for zero, or gray **Status unknown** when realtime updates fail.
+  They update with the live snapshots and remain separate from Enabled/Paused
+  and credential synchronization status. Online indicates an open socket, not
+  proof of successful protocol authentication or Internet reachability.
 - `connections[].gateway.openTunnels`: every currently open gateway socket for
   that subscription, including sockets beyond the Status page's 1,000-detail limit.
   One device may open many sockets. These counts are not device counts and do

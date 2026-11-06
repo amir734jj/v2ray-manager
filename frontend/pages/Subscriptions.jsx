@@ -119,6 +119,12 @@ function SubscriptionList() {
               <div class="small text-body-secondary">Created <Timestamp value={connection.createdAt} /></div>
             </div>
             <div class="d-flex flex-wrap gap-2">
+              <span class={`badge ${refreshError ? 'text-bg-secondary' : connection.gateway.openTunnels > 0 ? 'text-bg-success' : 'text-bg-danger'}`}
+                title={refreshError ? 'Live connection status is unavailable; displayed data may be stale.'
+                  : connection.gateway.openTunnels > 0 ? 'In use: at least one gateway tunnel is open.'
+                    : 'No gateway tunnels are currently open.'}>
+                {refreshError ? 'Status unknown' : connection.gateway.openTunnels > 0 ? 'Online' : 'Offline'}
+              </span>
               <span class="badge text-bg-secondary">
                 {connection.enabled ? 'Enabled' : 'Paused'} / {connection.syncStatus}
               </span>
