@@ -94,11 +94,9 @@ export function createConnectionUrls(serverConfig, host) {
   validateHost(host);
   return Object.fromEntries(protocols.map(protocol => {
     const options = connectionOptions(serverConfig, protocol, host);
-    if (protocol === 'vmess') {
-      options.tag = options.inbound.tag ?? options.tag;
-      return [protocol, `${createConnectionUrl(options)}#${encodeURIComponent(options.tag)}`];
-    }
-    options.tag = options.inbound.tag;
+    options.tag = protocol === 'vmess'
+      ? options.inbound.tag ?? options.tag
+      : options.inbound.tag;
     return [protocol, createConnectionUrl(options)];
   }));
 }
