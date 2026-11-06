@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { DataTypes, Op, Sequelize } from 'sequelize';
+import { DataTypes, Op, QueryTypes, Sequelize } from 'sequelize';
 import createError from 'http-errors';
 import lodash from 'lodash';
 import { createTrafficUsage } from './traffic-usage.js';
@@ -134,6 +134,8 @@ export async function createResourceHistory(path) {
     retry: { match: [/SQLITE_BUSY/], max: 5 },
   });
   try {
+    const [journal] = await database.query('PRAGMA journal_mode=WAL', { type: QueryTypes.SELECT });
+    if (journal.journal_mode !== 'wal') throw new Error('The metrics database could not enable SQLite WAL mode');
     const Sample = database.define('ResourceSample', {
       timestamp: { type: DataTypes.BIGINT, primaryKey: true },
       sample: { type: DataTypes.JSON, allowNull: false },

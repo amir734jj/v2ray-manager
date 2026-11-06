@@ -4,6 +4,10 @@ import { connectionsSnapshot, sameOrigin } from '../services';
 
 export function createConnectionsController({ tunnels, auth }) {
   const router = express.Router({ strict: true, caseSensitive: true });
+  router.get('/api/destinations', auth.requireUser, auth.requireAdmin, async (request, response) => {
+    if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
+    response.json(await tunnels.searchDestinations(request.query));
+  });
   router.get('/api/connections', auth.requireUser, auth.requireAdmin, async (_request, response) => {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
     response.json(await connectionsSnapshot(tunnels));

@@ -7,6 +7,7 @@ export default function Navbar({ user, pathname, onLogout }) {
       { href: '/blocked-ips', label: 'Blocked IPs', active: pathname === '/blocked-ips' },
       ...(user.admin ? [
         { href: '/subscriptions', label: 'Subscriptions', active: pathname === '/subscriptions' },
+        { href: '/destinations', label: 'Destinations', active: pathname === '/destinations' },
         { href: '/users', label: 'Users', active: pathname === '/users' },
       ] : []),
     ]

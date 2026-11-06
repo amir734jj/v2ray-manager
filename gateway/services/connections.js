@@ -9,6 +9,26 @@ import { createDestinationMonitor } from './destinations.js';
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
 
+function destinationCursor(value) {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || value.length > 768 || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw createError(400, 'Invalid destination cursor');
+  }
+  let tuple;
+  try {
+    tuple = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    throw createError(400, 'Invalid destination cursor');
+  }
+  if (!Array.isArray(tuple) || tuple.length !== 3 || !Number.isSafeInteger(tuple[0]) || tuple[0] < 0
+    || typeof tuple[1] !== 'string' || !uuidPattern.test(tuple[1])
+    || typeof tuple[2] !== 'string' || !tuple[2].length || tuple[2].length > 253) {
+    throw createError(400, 'Invalid destination cursor');
+  }
+  return { lastSeen: tuple[0], connectionId: tuple[1], domain: tuple[2] };
+}
+
 function subscriptionName(name) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 128) {
     throw createError(400, 'Subscription name must contain 1-128 characters');
@@ -42,7 +62,9 @@ export function createConnectionService({ connections, api, host, disconnect, li
   let stopping = false;
   let timer;
   let statsTimer;
+  let destinationTimer;
   let pendingStats = null;
+  let pendingDestinations = null;
   let reconciliationError = null;
   let activityError = null;
   let coreStats = { status: 'loading', sampledAt: null, uptimeSeconds: null, error: null };
@@ -235,7 +257,6 @@ export function createConnectionService({ connections, api, host, disconnect, li
   async function scheduleStats() {
     if (stopping) return;
     pendingStats = exclusive(async () => {
-      await destinationMonitor.flush();
       await collectActivity();
       await collectStats();
     });
@@ -250,21 +271,36 @@ export function createConnectionService({ connections, api, host, disconnect, li
     }
   }
 
+  async function scheduleDestinations() {
+    if (stopping) return;
+    pendingDestinations = destinationMonitor.flush();
+    try {
+      await pendingDestinations;
+    } finally {
+      pendingDestinations = null;
+      if (!stopping) {
+        destinationTimer = setTimeout(scheduleDestinations, 5000);
+        destinationTimer.unref();
+      }
+    }
+  }
+
   return {
     async start() {
       const saved = trafficUsage.snapshot();
       coreCounters = saved.counters;
       coreStats = { ...coreStats, sampledAt: saved.sampledAt, uptimeSeconds: saved.uptimeSeconds };
       destinationMonitor.start();
-      await Promise.all([scheduleReconciliation(), scheduleStats()]);
+      await Promise.all([scheduleReconciliation(), scheduleStats(), scheduleDestinations()]);
     },
     async close() {
       stopping = true;
       clearAuthorizations();
       clearTimeout(timer);
       clearTimeout(statsTimer);
+      clearTimeout(destinationTimer);
       destinationMonitor.stop();
-      await Promise.all([queue, pendingStats]);
+      await Promise.all([queue, pendingStats, pendingDestinations]);
       await destinationMonitor.flush();
       await collectActivity();
       api.close();
@@ -287,6 +323,36 @@ export function createConnectionService({ connections, api, host, disconnect, li
           })),
           error: lodash.compact([reconciliationError, activityError]).join(' ') || null,
           coreStats: { ...coreStats },
+          destinationStats: destinationMonitor.status(),
+        };
+      });
+    },
+    async searchDestinations({ q = '', cursor } = {}) {
+      if (typeof q !== 'string' || q.length > 253) {
+        throw createError(400, 'Destination search must contain at most 253 characters');
+      }
+      const after = destinationCursor(cursor);
+      const query = q.trim().toLowerCase();
+      return guarded(async () => {
+        const subscriptions = await listRows();
+        const names = new Map(lodash.map(subscriptions, row => [row.id, row.name]));
+        const result = await destinations.search({
+          ids: lodash.map(subscriptions, 'id'),
+          matchingIds: lodash.map(lodash.filter(subscriptions, row => row.name.toLowerCase().includes(query)), 'id'),
+          query,
+          after,
+        });
+        const last = lodash.last(result.rows);
+        return {
+          destinations: lodash.map(result.rows, row => ({
+            subscriptionId: row.connectionId,
+            subscriptionName: names.get(row.connectionId),
+            domain: row.domain,
+            lastSeen: new Date(Number(row.lastSeen)).toISOString(),
+          })),
+          nextCursor: result.hasMore ? Buffer.from(JSON.stringify([
+            Number(last.lastSeen), last.connectionId, last.domain,
+          ])).toString('base64url') : null,
           destinationStats: destinationMonitor.status(),
         };
       });
@@ -341,7 +407,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
               await connections.remove(row);
               await trafficUsage.remove(id);
               await subscriptionActivity.remove(id);
-              await destinations.remove(id);
+              await destinationMonitor.remove(id);
               appliedCredentials.delete(id);
               coreCounters.delete(id);
             }

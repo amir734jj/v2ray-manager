@@ -25,7 +25,7 @@ access policy.
 
 Management HTTP endpoints are under `/api`: authentication uses `/api/auth/*`,
 user management uses `/api/users`, subscription management uses `/api/connections`,
-IP controls use `/api/blocklist/*`, and the
+destination history search uses `/api/destinations`, IP controls use `/api/blocklist/*`, and the
 status snapshot is at `/api/status.json`. The old `/auth/*`, `/blocklist/*`,
 and `/status.json` paths are no longer available; update external clients and
 access policies when redeploying. Browser page routes, `/healthz`, tunnel
@@ -314,6 +314,29 @@ Socket.IO `users` resource contain dashboard accounts only.
 The administrator-only subscription cards and `/api/connections`/Socket.IO
 `connections` snapshots include `connections[].recentDestinations`, a list of
 up to 50 `{ domain, lastSeen }` entries ordered by most recent observation.
+The separate administrator-only **Destinations** tab searches all retained
+subscription/domain pairs, not just those card previews. Its columns are
+**Domain**, **Subscription**, and **Last observed**. Search matches literal,
+case-insensitive substrings of a domain or the current subscription name.
+Previous/Next browse 50-row pages; Search and Refresh return to the newest page.
+The page fetches only on those actions, not per keystroke or on a polling timer.
+Retention remains 24 hours and the per-subscription previews are unchanged.
+
+`GET /api/destinations?q=<search>&cursor=<nextCursor>` requires an active
+administrator. Both parameters are optional; `q` is limited to 253 characters.
+The response contains `destinations` with `{ subscriptionId, subscriptionName,
+domain, lastSeen }`, `nextCursor` (null at the end), and `destinationStats`.
+Pagination uses a validated opaque cursor over last-observed time, subscription
+ID, and domain rather than loading the full history, counting all matches, or
+using growing SQL offsets. An additional covering index matches the global
+history order; pages fetch at
+most 51 candidates to determine whether another page exists. Names come from
+current subscription metadata, so
+renames are reflected immediately and deleted subscriptions are excluded.
+Results are live, not a frozen snapshot: activity can move an entry to an earlier
+page, and expiry can remove entries while browsing. Refresh to see the newest
+ordering. Do not retain search/cursor query strings in external access logs.
+
 `lastSeen` is the gateway's observation time, not the user's last page interaction.
 Domains are plain text, not clickable links. Background applications, prefetching,
 and failed outbound connections may appear; an accepted protocol request is not
@@ -331,11 +354,22 @@ hop is added; managed access-log output is disabled while the API stream is used
 and logging policy. Unsupported versions report a collection warning rather
 than silently showing an empty history.
 
-Every five seconds, a bounded 10,000-entry buffer coalesces repeated observations
-of each subscription/domain into one SQLite upsert. The
+An independent collection loop coalesces repeated observations of each
+subscription/domain in a bounded 10,000-entry buffer into one SQLite upsert.
+Collection cycles wait five seconds after completion; they never overlap and
+do not delay scheduling of core byte totals or activity sampling. Domain writes run
+outside the credential-management queue rather than occupying it during domain
+persistence. Authorization remains synchronous and does not access SQLite.
+Deletion waits for any in-flight
+domain write and excludes that subscription from new batches before clearing
+its history, preventing delayed writes from recreating deleted records.
+Upserts and cleanup use transactions of at most 500 rows, yielding between batches
+so other work can run and acquire the SQLite writer. Idle cycles between cleanup
+passes perform no destination writes. Expiry cleanup runs at most once per minute; orphan cleanup
+runs only when the subscription ID set changes. The
 `gateway_subscription_destinations` table lives in the existing `metrics.sqlite`.
 An entry expires 24 hours after its last observation; reads exclude expired rows,
-and successful sampling cycles delete them and orphaned subscriptions' rows.
+and cleanup deletes them and orphaned subscriptions' rows.
 Deletion of a subscription removes its history. Pause, credential rotation, and
 Reset traffic totals do not erase domain history. Saved history survives restarts
 within retention. No historical access logs are imported.
@@ -383,6 +417,10 @@ Preserve and back up the `gateway-metrics` volume at `GATEWAY_METRICS_PATH`.
 Accumulated totals are not subject to the charts' 24-hour retention. Removing that
 volume loses the accumulated totals and checkpoints. SQLite uses local file locks
 and bounded retries for `SQLITE_BUSY`; only one writer commits at a time.
+The metrics database uses WAL mode so readers can proceed alongside a writer;
+write durability is not reduced. Use a SQLite-aware backup/snapshot procedure,
+not a copy of only the live `metrics.sqlite` file: uncheckpointed data may still
+reside in its `-wal` sidecar.
 Do not share the database over a network filesystem. The application still
 requires one gateway owner per V2Ray instance: SQLite does not coordinate
 in-memory IP limits, live sockets, or V2Ray credential reconciliation.

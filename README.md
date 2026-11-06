@@ -100,6 +100,11 @@ Inform subscribers about destination monitoring. Rebuild/redeploy **init, V2Ray,
 and gateway** to enable the required `LoggerService` and sniffed-destination
 logging policy. Collection begins after deployment; old activity is not imported.
 
+The administrator-only **Destinations** tab searches all saved domains from the
+last 24 hours by domain or subscription name. It shows the subscription and last
+observation time, with 50 rows per page and no 50-record history cap. Search and
+pagination run on the server; use **Refresh** to return to the newest results.
+
 The deployment no longer accepts `V2RAY_UUID` or shared FTP profiles. Existing
 clients need new private subscriptions after upgrading. Remove old FTP exports
 manually. Expiration and physical-device identification are not implemented.

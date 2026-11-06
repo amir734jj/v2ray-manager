@@ -25,6 +25,8 @@ export function createDestinationMonitor({ api, store, listIds, logger, onChange
   let storageError = null;
   let overflow = false;
   let previousOverflow = false;
+  let pendingFlush = null;
+  const removedIds = new Set();
 
   function failed(error) {
     if (stopping || retry) return;
@@ -84,28 +86,50 @@ export function createDestinationMonitor({ api, store, listIds, logger, onChange
         ]).join(' ') || null,
       };
     },
-    async flush() {
-      const batch = pending;
-      pending = new Map();
-      const dropped = overflow;
-      overflow = false;
-      try {
-        const ids = await listIds();
-        await store.record([...batch.values()], ids);
-        storageError = null;
-        previousOverflow = dropped;
-      } catch (error) {
-        storageError = 'Recent destinations could not be saved; displayed history may be stale. Check gateway logs and the SQLite store.';
-        logger.warn({ errorName: error.name, errorCode: error.original?.code ?? error.code }, 'Destination persistence failed');
-        for (const [key, observation] of batch) {
-          if (pending.has(key)) continue;
-          if (pending.size >= MAX_PENDING) {
-            overflow = true;
-            break;
-          }
-          pending.set(key, observation);
-        }
+    flush() {
+      if (pendingFlush) return pendingFlush;
+      pendingFlush = flush().finally(() => {
+        pendingFlush = null;
+        onChange();
+      });
+      return pendingFlush;
+    },
+    async remove(id) {
+      removedIds.add(id);
+      for (const [key, observation] of pending) {
+        if (observation.connectionId === id) pending.delete(key);
       }
+      await pendingFlush;
+      await store.remove(id);
     },
   };
+
+  async function flush() {
+    const batch = pending;
+    pending = new Map();
+    const dropped = overflow;
+    overflow = false;
+    try {
+      const ids = await listIds();
+      const activeIds = lodash.filter(ids, id => !removedIds.has(id));
+      await store.record([...batch.values()], activeIds);
+      const knownIds = new Set(ids);
+      for (const id of removedIds) {
+        if (!knownIds.has(id)) removedIds.delete(id);
+      }
+      storageError = null;
+      previousOverflow = dropped;
+    } catch (error) {
+      storageError = 'Recent destinations could not be saved; displayed history may be stale. Check gateway logs and the SQLite store.';
+      logger.warn({ errorName: error.name, errorCode: error.original?.code ?? error.code }, 'Destination persistence failed');
+      for (const [key, observation] of batch) {
+        if (pending.has(key)) continue;
+        if (pending.size >= MAX_PENDING) {
+          overflow = true;
+          break;
+        }
+        pending.set(key, observation);
+      }
+    }
+  }
 }
