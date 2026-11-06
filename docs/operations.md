@@ -328,11 +328,10 @@ The response contains `destinations` with `{ subscriptionId, subscriptionName,
 domain, lastSeen }`, `nextCursor` (null at the end), and `destinationStats`.
 Pagination uses a validated opaque cursor over last-observed time, subscription
 ID, and domain rather than loading the full history, counting all matches, or
-using growing SQL offsets. An additional covering index matches the global
-history order; pages fetch at
-most 51 candidates to determine whether another page exists. Names come from
-current subscription metadata, so
-renames are reflected immediately and deleted subscriptions are excluded.
+using growing SQL offsets. Each query returns at most 51 rows to determine
+whether another page exists, using the existing indexes without adding index
+maintenance to domain writes. Names come from current subscription metadata,
+so renames are reflected immediately and deleted subscriptions are excluded.
 Results are live, not a frozen snapshot: activity can move an entry to an earlier
 page, and expiry can remove entries while browsing. Refresh to see the newest
 ordering. Do not retain search/cursor query strings in external access logs.

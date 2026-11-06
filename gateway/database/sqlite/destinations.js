@@ -14,14 +14,7 @@ export async function createDestinations(database, clock = Date.now) {
   }, {
     tableName: 'gateway_subscription_destinations',
     timestamps: false,
-    indexes: [
-      { fields: ['lastSeen'] },
-      { fields: ['connectionId', 'lastSeen'] },
-      {
-        name: 'gateway_subscription_destinations_recent',
-        fields: [{ name: 'lastSeen', order: 'DESC' }, 'connectionId', 'domain'],
-      },
-    ],
+    indexes: [{ fields: ['lastSeen'] }, { fields: ['connectionId', 'lastSeen'] }],
   });
   await Destination.sync();
   let lastPrunedAt = -Infinity;
