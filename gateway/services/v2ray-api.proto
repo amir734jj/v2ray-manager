@@ -33,3 +33,7 @@ message StatCounter {
 message QueryStatsResponse { repeated StatCounter stat = 1; }
 message SysStatsRequest {}
 message SysStatsResponse { uint32 uptime = 10; }
+
+// LoggerService uses its own package and a server-streaming RPC.
+message FollowLogRequest {}
+message FollowLogResponse { string message = 1; }

@@ -4,6 +4,7 @@ import lodash from 'lodash';
 import { createConnectionUrls, protocols, validateHost } from '@v2ray-manager/generator';
 import { publicConnection } from '../database/postgres/tunnel-connections.js';
 import { parseTunnelPath } from '../proxy/paths.js';
+import { createDestinationMonitor } from './destinations.js';
 
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
@@ -35,7 +36,7 @@ export function subscriptionContent(connection, host) {
   return Buffer.from(links.join('\n') + '\n').toString('base64');
 }
 
-export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, subscriptionActivity, activitySnapshot, logger, onChange = () => {} }) {
+export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, subscriptionActivity, destinations, activitySnapshot, logger, onChange = () => {} }) {
   validateHost(host);
   let queue = Promise.resolve();
   let stopping = false;
@@ -51,6 +52,9 @@ export function createConnectionService({ connections, api, host, disconnect, li
   const authorizations = new Map();
   const authorizationCredentials = new Map();
   let authorizationReady = false;
+  const destinationMonitor = createDestinationMonitor({
+    api, store: destinations, listIds: async () => lodash.map(await listRows(), 'id'), logger, onChange,
+  });
 
   function revokeAuthorization(id) {
     const credential = authorizationCredentials.get(id);
@@ -231,6 +235,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
   async function scheduleStats() {
     if (stopping) return;
     pendingStats = exclusive(async () => {
+      await destinationMonitor.flush();
       await collectActivity();
       await collectStats();
     });
@@ -250,6 +255,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
       const saved = trafficUsage.snapshot();
       coreCounters = saved.counters;
       coreStats = { ...coreStats, sampledAt: saved.sampledAt, uptimeSeconds: saved.uptimeSeconds };
+      destinationMonitor.start();
       await Promise.all([scheduleReconciliation(), scheduleStats()]);
     },
     async close() {
@@ -257,7 +263,9 @@ export function createConnectionService({ connections, api, host, disconnect, li
       clearAuthorizations();
       clearTimeout(timer);
       clearTimeout(statsTimer);
+      destinationMonitor.stop();
       await Promise.all([queue, pendingStats]);
+      await destinationMonitor.flush();
       await collectActivity();
       api.close();
     },
@@ -265,7 +273,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
       return guarded(async () => {
         const rows = await listRows();
         return {
-          connections: lodash.map(rows, row => {
+          connections: await Promise.all(lodash.map(rows, async row => {
             const connectedIps = listIps(row.id);
             return {
               ...publicConnection(row),
@@ -274,10 +282,12 @@ export function createConnectionService({ connections, api, host, disconnect, li
               savedActivity: subscriptionActivity.snapshot(row.id),
               subscriptionUrl: row.subscriptionToken ? subscriptionUrl(row.subscriptionToken) : null,
               coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
+              recentDestinations: await destinations.list(row.id),
             };
-          }),
+          })),
           error: lodash.compact([reconciliationError, activityError]).join(' ') || null,
           coreStats: { ...coreStats },
+          destinationStats: destinationMonitor.status(),
         };
       });
     },
@@ -331,6 +341,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
               await connections.remove(row);
               await trafficUsage.remove(id);
               await subscriptionActivity.remove(id);
+              await destinations.remove(id);
               appliedCredentials.delete(id);
               coreCounters.delete(id);
             }

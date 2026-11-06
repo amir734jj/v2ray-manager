@@ -214,5 +214,6 @@ export async function connectionsSnapshot(tunnels) {
     }),
     tunnelError: state.error,
     coreStats: state.coreStats ?? null,
+    destinationStats: state.destinationStats ?? null,
   };
 }

@@ -57,6 +57,7 @@ try {
     listIps: gatewayProxy.listTunnelIps,
     trafficUsage: resourceHistory.trafficUsage,
     subscriptionActivity: resourceHistory.subscriptionActivity,
+    destinations: resourceHistory.destinations,
     activitySnapshot: tunnelActivitySnapshot,
   });
   await tunnels.start();

@@ -4,6 +4,7 @@ import createError from 'http-errors';
 import lodash from 'lodash';
 import { createTrafficUsage } from './traffic-usage.js';
 import { createSubscriptionActivity } from './subscription-activity.js';
+import { createDestinations } from './destinations.js';
 
 export const RESOURCE_RANGES = {
   '5m': 5 * 60 * 1000,
@@ -72,11 +73,12 @@ function finishSeries(series) {
 }
 
 class ResourceHistory {
-  constructor(database, Sample, trafficUsage, subscriptionActivity, clock = Date.now) {
+  constructor(database, Sample, trafficUsage, subscriptionActivity, destinations, clock = Date.now) {
     this.database = database;
     this.Sample = Sample;
     this.trafficUsage = trafficUsage;
     this.subscriptionActivity = subscriptionActivity;
+    this.destinations = destinations;
     this.clock = clock;
   }
 
@@ -139,7 +141,8 @@ export async function createResourceHistory(path) {
     await Sample.sync();
     const trafficUsage = await createTrafficUsage(database);
     const subscriptionActivity = await createSubscriptionActivity(database);
-    const history = new ResourceHistory(database, Sample, trafficUsage, subscriptionActivity);
+    const destinations = await createDestinations(database);
+    const history = new ResourceHistory(database, Sample, trafficUsage, subscriptionActivity, destinations);
     await history.pruneExpired();
     return history;
   } catch (error) {

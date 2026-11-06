@@ -26,6 +26,12 @@ const StatsClient = grpc.makeGenericClientConstructor({
   queryStats: rpcMethod('v2ray.core.app.stats.command.StatsService', 'QueryStats', 'QueryStatsRequest', 'QueryStatsResponse'),
   getSysStats: rpcMethod('v2ray.core.app.stats.command.StatsService', 'GetSysStats', 'SysStatsRequest', 'SysStatsResponse'),
 }, 'StatsService');
+const LoggerClient = grpc.makeGenericClientConstructor({
+  followLog: {
+    ...rpcMethod('v2ray.core.app.log.command.LoggerService', 'FollowLog', 'FollowLogRequest', 'FollowLogResponse'),
+    responseStream: true,
+  },
+}, 'LoggerService');
 const ports = { vless: 53217, vmess: 53218, trojan: 53219 };
 const typedMessage = (name, value) => ({ typeUrl: `types.v2fly.org/${name}`, value });
 
@@ -33,6 +39,7 @@ export function createV2rayApi(address) {
   if (!address) throw new Error('V2RAY_API_ADDRESS is required');
   const client = new HandlerClient(address, grpc.credentials.createInsecure());
   const statsClient = new StatsClient(address, grpc.credentials.createInsecure());
+  const loggerClient = new LoggerClient(address, grpc.credentials.createInsecure());
   function readStats(method, request) {
     return new Promise((resolve, reject) => {
       statsClient[method](request, { deadline: Date.now() + 5000 }, (error, response) => {
@@ -55,6 +62,9 @@ export function createV2rayApi(address) {
     });
   }
   return {
+    followLogs() {
+      return loggerClient.followLog({});
+    },
     add(protocol, connection) {
       const email = `connection-${connection.id}`;
       return alter(protocol, 'AddUserOperation', {
@@ -97,6 +107,7 @@ export function createV2rayApi(address) {
     close() {
       client.close();
       statsClient.close();
+      loggerClient.close();
     },
   };
 }

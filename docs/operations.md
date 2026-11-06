@@ -309,6 +309,47 @@ not independent proof of a physical user's identity. Only administrators receive
 the per-subscription activity and accounting snapshots. `/api/users` and the
 Socket.IO `users` resource contain dashboard accounts only.
 
+### Recent destination domains
+
+The administrator-only subscription cards and `/api/connections`/Socket.IO
+`connections` snapshots include `connections[].recentDestinations`, a list of
+up to 50 `{ domain, lastSeen }` entries ordered by most recent observation.
+`lastSeen` is the gateway's observation time, not the user's last page interaction.
+Domains are plain text, not clickable links. Background applications, prefetching,
+and failed outbound connections may appear; an accepted protocol request is not
+proof that a website loaded. HTTPS paths, queries, and content are not collected.
+IP-only destinations, hidden hostnames/ECH, and traffic outside this proxy cannot
+be reconstructed. HTTP/TLS hostname sniffing improves coverage but is not complete.
+
+Managed generation enables V2Fly `LoggerService.FollowLog` on the existing
+private management API and `policy.system.overrideAccessLogDest` so access events
+use the destination after hostname sniffing. The collector accepts only
+authenticated `accepted` events with the gateway-assigned `connection-<id>` email.
+Do not expose management port 10085 publicly. No access-log file or extra proxy
+hop is added; managed access-log output is disabled while the API stream is used.
+`FollowLog` is an upstream unstable API: use a V2Fly build supporting that RPC
+and logging policy. Unsupported versions report a collection warning rather
+than silently showing an empty history.
+
+Every five seconds, a bounded 10,000-entry buffer coalesces repeated observations
+of each subscription/domain into one SQLite upsert. The
+`gateway_subscription_destinations` table lives in the existing `metrics.sqlite`.
+An entry expires 24 hours after its last observation; reads exclude expired rows,
+and successful sampling cycles delete them and orphaned subscriptions' rows.
+Deletion of a subscription removes its history. Pause, credential rotation, and
+Reset traffic totals do not erase domain history. Saved history survives restarts
+within retention. No historical access logs are imported.
+
+Top-level `destinationStats` reports collection status/error separately from
+core byte totals. Stream failures reconnect after five seconds, storage failures
+retain a bounded retry buffer, and overflow is logged and shown as incomplete
+collection. Collection does not block tunnel authorization. Disconnections,
+gateway downtime, buffer overflow, and crashes before a flush can lose observations;
+the stream has no replay. Collection timestamps use the gateway clock.
+Inform subscribers of this monitoring, restrict administrator access, and protect
+SQLite files and backups. Expiry removes active records, not copies in backups.
+Rebuild/redeploy **init, V2Ray, and gateway** together to apply the new configuration.
+
 Managed configuration enables `StatsService`, the stats manager, and level-zero
 `statsUserUplink`/`statsUserDownlink` policies. Redeploy `init` and V2Ray when
 upgrading to install that configuration. The gateway polls QueryStats and

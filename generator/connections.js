@@ -54,10 +54,12 @@ export function configureManagedServer(config) {
   for (const inbound of config.inbounds.filter(item => protocols.includes(item.protocol))) {
     inbound.settings.clients = [];
   }
-  config.api = { tag: 'management-api', services: ['HandlerService', 'StatsService'] };
+  config.api = { tag: 'management-api', services: ['HandlerService', 'StatsService', 'LoggerService'] };
+  config.log = { ...config.log, access: 'none' };
   config.stats = {};
   config.policy = {
     ...config.policy,
+    system: { ...config.policy?.system, overrideAccessLogDest: true },
     levels: {
       ...config.policy?.levels,
       '0': { ...config.policy?.levels?.['0'], statsUserUplink: true, statsUserDownlink: true },

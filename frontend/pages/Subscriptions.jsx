@@ -104,6 +104,7 @@ function SubscriptionList() {
     {loading && <p role="status">Loading subscriptions...</p>}
     {data?.tunnelError && <div class="alert alert-danger" role="alert">{data.tunnelError}</div>}
     {data?.coreStats?.error && <div class="alert alert-warning" role="alert">{data.coreStats.error}</div>}
+    {data?.destinationStats?.error && <div class="alert alert-warning" role="alert">{data.destinationStats.error}</div>}
     {data?.coreStats?.sampledAt && <p class="small text-body-secondary">
       Core snapshot: <Timestamp value={data.coreStats.sampledAt} />
       {data.coreStats.status === 'error' && ' (stale)'}
@@ -157,6 +158,22 @@ function SubscriptionList() {
                 {connection.connectedIps.map(ip => <li key={ip}><code class="text-break">{ip}</code></li>)}
               </ul> : <p class="text-body-secondary mb-0">No IPs currently connected.</p>}
             </div>
+            <details class="mt-3">
+              <summary class="h6">Recent destinations (24 hours)</summary>
+              <p class="small text-body-secondary mt-2">Latest 50 observed domains, including background apps; not page URLs or proof of a visit.</p>
+              {connection.recentDestinations?.length ? <ul class="list-unstyled mb-0"
+                aria-label={`Recent destinations for ${connection.name}`}>
+                {connection.recentDestinations.map(destination => <li key={destination.domain}
+                  class="d-flex flex-column flex-sm-row justify-content-between gap-sm-3 mb-2">
+                  <code class="text-break">{destination.domain}</code>
+                  <span class="small text-body-secondary flex-shrink-0"><Timestamp value={destination.lastSeen} /></span>
+                </li>)}
+              </ul> : <p class="text-body-secondary mb-0">
+                {data.destinationStats?.status === 'error' ? 'Domain collection is unavailable or incomplete.'
+                  : data.destinationStats?.status === 'loading' ? 'Waiting for the V2Ray destination stream...'
+                    : 'No domains observed in the last 24 hours.'}
+              </p>}
+            </details>
             <IpLimitForm connection={connection} busy={busy} onSave={perform} />
         </div>
         <div class="card-footer d-flex flex-wrap gap-2">

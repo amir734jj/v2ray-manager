@@ -91,6 +91,15 @@ Traffic not sampled before a V2Ray reset cannot be recovered.
 Redeploy `init` and V2Ray once to enable
 the StatsService and user counters.
 
+Subscription cards also show **Recent destinations (24 hours)**: the latest 50
+observed domains and their last observation times. Domains are attributed to
+authenticated V2Ray credentials, saved in SQLite, and removed after 24 hours
+without another observation. Only administrators can view them. Background apps
+also generate connections; this is not browser history or proof of a page visit.
+Inform subscribers about destination monitoring. Rebuild/redeploy **init, V2Ray,
+and gateway** to enable the required `LoggerService` and sniffed-destination
+logging policy. Collection begins after deployment; old activity is not imported.
+
 The deployment no longer accepts `V2RAY_UUID` or shared FTP profiles. Existing
 clients need new private subscriptions after upgrading. Remove old FTP exports
 manually. Expiration and physical-device identification are not implemented.
