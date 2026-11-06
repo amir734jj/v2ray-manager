@@ -7,6 +7,13 @@ import { parseTunnelPath } from '../proxy/paths.js';
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
 
+function subscriptionName(name) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 128) {
+    throw createError(400, 'Subscription name must contain 1-128 characters');
+  }
+  return name.trim();
+}
+
 function validateIpLimit(value) {
   if (!Number.isInteger(value) || value < 0 || value > 2147483647) {
     throw createError(400, 'Concurrent IP limit must be a whole number from 0 to 2147483647; use 0 for unlimited');
@@ -195,13 +202,11 @@ export function createConnectionService({ connections, api, host, disconnect, co
     },
     create(name, maxConcurrentIps = 0) {
       return exclusive(async () => {
-        if (typeof name !== 'string' || !name.trim() || name.trim().length > 128) {
-          throw createError(400, 'Subscription name must contain 1-128 characters');
-        }
+        const normalizedName = subscriptionName(name);
         validateIpLimit(maxConcurrentIps);
         const token = randomUUID();
         const row = await connections.create({
-          id: randomUUID(), name: name.trim(), credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
+          id: randomUUID(), name: normalizedName, credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
           enabled: true, syncStatus: 'pending', maxConcurrentIps,
         });
         onChange();
@@ -211,10 +216,12 @@ export function createConnectionService({ connections, api, host, disconnect, co
     },
     change(id, action, body) {
       return exclusive(async () => {
-        if (!['pause', 'resume', 'reset', 'subscription', 'delete', 'limits'].includes(action)) throw createError(400, 'Unknown connection action');
+        if (!['pause', 'resume', 'reset', 'subscription', 'delete', 'limits', 'rename'].includes(action)) throw createError(400, 'Unknown connection action');
         const row = await find(id);
         const token = ['reset', 'subscription'].includes(action) ? randomUUID() : null;
-        if (action === 'limits') {
+        if (action === 'rename') {
+          await connections.update(row, { name: subscriptionName(body?.name) });
+        } else if (action === 'limits') {
           await connections.update(row, { maxConcurrentIps: validateIpLimit(body?.maxConcurrentIps) });
         } else if (action === 'subscription') {
           await connections.update(row, { subscriptionTokenHash: tokenHash(token), subscriptionToken: token });

@@ -67,6 +67,11 @@ function SubscriptionList() {
     perform(`/api/connections/${connection.id}/${action}`);
   }
 
+  function rename(connection) {
+    const name = window.prompt('New subscription name', connection.name);
+    if (name !== null) perform(`/api/connections/${connection.id}/rename`, { name });
+  }
+
   async function copySubscription(url) {
     setError('');
     try {
@@ -169,6 +174,8 @@ function SubscriptionList() {
             <IpLimitForm connection={connection} busy={busy} onSave={perform} />
         </div>
         <div class="card-footer d-flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-outline-secondary" disabled={busy}
+              onClick={() => rename(connection)}>Rename</button>
             <button class="btn btn-sm btn-warning" disabled={busy}
               onClick={() => change(connection, connection.enabled ? 'pause' : 'resume')}>
               {connection.enabled ? 'Pause' : 'Resume'}

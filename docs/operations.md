@@ -169,6 +169,8 @@ The administrator's **Subscriptions** page provides:
 - **Create subscription:** enter a 1-128 character name and generate unique
   credentials and a private subscription. Names need not be unique. There is no
   application-level subscription count limit.
+- **Rename:** change the subscription's display name (1-128 characters) without
+  changing its URL, credentials, IP limit, traffic totals, or active tunnels.
 - **Pause:** reject new tunnels and close that subscription's existing gateway sockets.
 - **Resume:** restore access with the same profiles.
 - **Reset credentials:** invalidate old profiles and the old subscription URL.
@@ -312,6 +314,7 @@ Admin-only, same-origin POST endpoints:
 - `/api/connections/:id/reset`
 - `/api/connections/:id/subscription`
 - `/api/connections/:id/delete` (returns `{ "deleted": true }` after cleanup)
+- `/api/connections/:id/rename` with JSON body `{ "name": "New subscription name" }`
 - `/api/connections/:id/limits` with JSON body `{ "maxConcurrentIps": 2 }`
   (required integer from `0` to `2147483647`; `0` disables the limit)
 
