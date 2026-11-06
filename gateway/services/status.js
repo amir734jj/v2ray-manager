@@ -194,10 +194,24 @@ export async function usersSnapshot(accounts) {
   return { users: await listAccounts(accounts) };
 }
 
+export function tunnelActivitySnapshot(id) {
+  return traffic.groupSnapshot(id);
+}
+
 export async function connectionsSnapshot(tunnels) {
   const state = tunnels ? await tunnels.list() : { connections: [], error: 'Tunnel management is unavailable' };
   return {
-    connections: state.connections.map(connection => ({ ...connection, gateway: traffic.groupSnapshot(connection.id) })),
+    connections: state.connections.map(({ savedActivity, ...connection }) => {
+      const gateway = traffic.groupSnapshot(connection.id);
+      return {
+        ...connection,
+        gateway: {
+          ...gateway,
+          lastTrafficAt: gateway.lastTrafficAt ?? savedActivity?.lastTrafficAt ?? null,
+          lastConnectedSince: gateway.lastConnectedSince ?? savedActivity?.connectedSince ?? null,
+        },
+      };
+    }),
     tunnelError: state.error,
     coreStats: state.coreStats ?? null,
   };

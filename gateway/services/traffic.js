@@ -62,11 +62,13 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
           previousUploadBytes: 0,
           previousDownloadBytes: 0,
           lastTrafficAt: null,
+          lastConnectedSince: null,
           rate: { intervalSeconds: null, uploadBytesPerSecond: null, downloadBytesPerSecond: null },
         });
       }
       baseline.group = groups.get(groupId);
       baseline.connectedAt = connectedAt ?? new Date(wallNow()).toISOString();
+      if (baseline.group.sockets.size === 0) baseline.group.lastConnectedSince = baseline.connectedAt;
       baseline.observedUploadBytes = 0;
       baseline.observedDownloadBytes = 0;
       baseline.group.sockets.set(socket, baseline);
@@ -84,6 +86,8 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
     socket.once('close', () => {
       const current = socketTotals(socket, baseline);
       if (baseline.group) {
+        const connectedTimes = [...baseline.group.sockets.values()].map(item => item.connectedAt);
+        baseline.group.lastConnectedSince = connectedTimes.sort()[0];
         observeGroupTraffic(baseline, current, new Date(wallNow()).toISOString());
         baseline.group.closedUploadBytes += current.uploadBytes;
         baseline.group.closedDownloadBytes += current.downloadBytes;
@@ -154,6 +158,7 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
     return {
       openTunnels: group?.sockets.size ?? 0,
       connectedSince,
+      lastConnectedSince: connectedSince ?? group?.lastConnectedSince ?? null,
       lastTrafficAt: group?.lastTrafficAt ?? null,
       traffic: group ? { ...groupTotals(group), ...group.rate } : {
         uploadBytes: 0,

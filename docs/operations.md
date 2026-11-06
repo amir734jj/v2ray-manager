@@ -262,6 +262,10 @@ two separate measurements:
 - `connections[].gateway.connectedSince`: the oldest currently open socket's
   connection time, or null when no sockets are open. Closing that oldest socket
   advances this timestamp to the next oldest.
+- `connections[].gateway.lastConnectedSince`: the live connected-since value,
+  or the saved start time of the previous connection when offline. The UI labels
+  the offline value **Previous connection since**, rather than implying that
+  pre-restart sockets are still connected.
 - `connections[].gateway.traffic`: socket upload/download bytes and rates from
   the shared five-second sampler. Upload is client to gateway; download is
   gateway to client. Rates include recently closed sockets in the sampling
@@ -269,11 +273,21 @@ two separate measurements:
 - `connections[].gateway.lastTrafficAt`: when a sample or socket close last
   observed a byte-counter change. It is an observation timestamp, not an exact
   packet timestamp or proof of authenticated application traffic. It remains
-  visible after all sockets close, until the gateway restarts.
+  visible after all sockets close and is restored from SQLite after a restart.
 - `connections[].coreTraffic`: authenticated V2Ray `uploadBytes`/`downloadBytes`
   totals, aggregated across VLESS, VMess, and Trojan using the connection's
   stable internal subscription identifier. Byte totals are decimal strings in the API
   to preserve 64-bit precision; the UI formats them in binary units.
+
+The `gateway_subscription_activity` SQLite table stores each subscription's
+`lastTrafficAt` and last observed `connectedSince`. The existing five-second
+collection loop saves these independently of V2Ray statistics availability and
+flushes them on graceful shutdown. Short-lived connections retain their start
+time in the sampler until saved. A crash can lose changes since the last
+successful save. Write failures are logged and surfaced on Subscriptions.
+Deleting a subscription removes its saved activity. Reset traffic totals does
+not erase timestamps. Current tunnel counts, IPs, and speeds remain live and
+are not restored as active connections.
 
 Gateway ownership is determined by the private path; V2Ray accounting is
 determined by the protocol credential. They are separate attribution mechanisms,

@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { DataTypes, Op, Sequelize } from 'sequelize';
 import createError from 'http-errors';
 import { createTrafficUsage } from './traffic-usage.js';
+import { createSubscriptionActivity } from './subscription-activity.js';
 
 export const RESOURCE_RANGES = {
   '5m': 5 * 60 * 1000,
@@ -71,10 +72,11 @@ function finishSeries(series) {
 }
 
 class ResourceHistory {
-  constructor(database, Sample, trafficUsage, clock = Date.now) {
+  constructor(database, Sample, trafficUsage, subscriptionActivity, clock = Date.now) {
     this.database = database;
     this.Sample = Sample;
     this.trafficUsage = trafficUsage;
+    this.subscriptionActivity = subscriptionActivity;
     this.clock = clock;
   }
 
@@ -136,7 +138,8 @@ export async function createResourceHistory(path) {
     }, { tableName: 'gateway_resource_samples', timestamps: false });
     await Sample.sync();
     const trafficUsage = await createTrafficUsage(database);
-    const history = new ResourceHistory(database, Sample, trafficUsage);
+    const subscriptionActivity = await createSubscriptionActivity(database);
+    const history = new ResourceHistory(database, Sample, trafficUsage, subscriptionActivity);
     await history.pruneExpired();
     return history;
   } catch (error) {

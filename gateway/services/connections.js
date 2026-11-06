@@ -33,7 +33,7 @@ export function subscriptionContent(connection, host) {
   return Buffer.from(Object.values(createConnectionUrls(config, host)).join('\n') + '\n').toString('base64');
 }
 
-export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, logger, onChange = () => {} }) {
+export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, subscriptionActivity, activitySnapshot, logger, onChange = () => {} }) {
   validateHost(host);
   let queue = Promise.resolve();
   let stopping = false;
@@ -41,6 +41,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
   let statsTimer;
   let pendingStats = null;
   let reconciliationError = null;
+  let activityError = null;
   let coreStats = { status: 'loading', sampledAt: null, uptimeSeconds: null, error: null };
   let coreCounters = new Map();
   const blocked = new Set();
@@ -160,9 +161,30 @@ export function createConnectionService({ connections, api, host, disconnect, li
     return true;
   }
 
+  async function collectActivity() {
+    try {
+      const rows = await connections.list();
+      await subscriptionActivity.record(rows.map(row => {
+        const activity = activitySnapshot(row.id);
+        return {
+          id: row.id, lastTrafficAt: activity.lastTrafficAt,
+          connectedSince: activity.lastConnectedSince,
+        };
+      }));
+      activityError = null;
+    } catch (error) {
+      activityError = 'Subscription activity timestamps could not be saved; check gateway logs. Saved timestamps may be stale.';
+      logger.warn({ err: error }, 'Subscription activity persistence failed');
+    }
+    onChange();
+  }
+
   async function scheduleStats() {
     if (stopping) return;
-    pendingStats = exclusive(collectStats);
+    pendingStats = exclusive(async () => {
+      await collectActivity();
+      await collectStats();
+    });
     try {
       await pendingStats;
     } finally {
@@ -186,6 +208,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
       clearTimeout(timer);
       clearTimeout(statsTimer);
       await Promise.all([queue, pendingStats]);
+      await collectActivity();
       api.close();
     },
     async list() {
@@ -198,11 +221,12 @@ export function createConnectionService({ connections, api, host, disconnect, li
               ...publicConnection(row),
               activeIps: connectedIps.length,
               connectedIps,
+              savedActivity: subscriptionActivity.snapshot(row.id),
               subscriptionUrl: row.subscriptionToken ? subscriptionUrl(row.subscriptionToken) : null,
               coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
             };
           }),
-          error: reconciliationError,
+          error: [reconciliationError, activityError].filter(Boolean).join(' ') || null,
           coreStats: { ...coreStats },
         };
       });
@@ -251,6 +275,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
             if (action === 'delete') {
               await connections.remove(row);
               await trafficUsage.remove(id);
+              await subscriptionActivity.remove(id);
               appliedCredentials.delete(id);
               coreCounters.delete(id);
             }

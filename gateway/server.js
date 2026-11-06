@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import {
   createGatewayLogger, startResourceRecording, stopResourceRecording, parsePort,
   attachRealtime, createIpDetails, gatewayEvents, createConnectionService,
-  createV2rayApi,
+  createV2rayApi, tunnelActivitySnapshot,
 } from './services';
 import { createGatewayProxy, createRouteWorkers } from './proxy';
 import { createGatewayApp } from './app.js';
@@ -67,6 +67,8 @@ try {
     disconnect: gatewayProxy.disconnectTunnel,
     listIps: gatewayProxy.listTunnelIps,
     trafficUsage: resourceHistory.trafficUsage,
+    subscriptionActivity: resourceHistory.subscriptionActivity,
+    activitySnapshot: tunnelActivitySnapshot,
   });
   await tunnels.start();
   if (workerFailure) throw workerFailure;

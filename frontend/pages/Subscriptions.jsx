@@ -168,7 +168,10 @@ function SubscriptionList() {
               <div class="col"><dt class="small text-body-secondary">Gateway upload</dt><dd class="mb-0"><TrafficRate value={connection.gateway.traffic.uploadBytesPerSecond} /></dd></div>
               <div class="col"><dt class="small text-body-secondary">Gateway download</dt><dd class="mb-0"><TrafficRate value={connection.gateway.traffic.downloadBytesPerSecond} /></dd></div>
               <div class="col"><dt class="small text-body-secondary">Last observed traffic</dt><dd class="mb-0"><Timestamp value={connection.gateway.lastTrafficAt} empty="Not observed" /></dd></div>
-              <div class="col"><dt class="small text-body-secondary">Connected since</dt><dd class="mb-0"><Timestamp value={connection.gateway.connectedSince} empty="No open tunnels" /></dd></div>
+              <div class="col">
+                <dt class="small text-body-secondary">{connection.gateway.connectedSince ? 'Connected since' : 'Previous connection since'}</dt>
+                <dd class="mb-0"><Timestamp value={connection.gateway.connectedSince ?? connection.gateway.lastConnectedSince} empty="No previous connection" /></dd>
+              </div>
               <div class="col"><dt class="small text-body-secondary">Core upload total</dt><dd class="mb-0"><CoreBytes value={connection.coreTraffic?.uploadBytes ?? null} status={data.coreStats?.status} /></dd></div>
               <div class="col"><dt class="small text-body-secondary">Core download total</dt><dd class="mb-0"><CoreBytes value={connection.coreTraffic?.downloadBytes ?? null} status={data.coreStats?.status} /></dd></div>
             </dl>
