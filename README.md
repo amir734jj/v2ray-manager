@@ -78,8 +78,9 @@ the schema changes applied.
 
 Administrator-only API and realtime snapshots retain each subscription's open gateway tunnels,
 oldest open tunnel time, upload/download speed, and last observed socket traffic.
-The Subscriptions page shows management controls without traffic/IP statistics
-or explanatory panels.
+The Subscriptions page shows these statistics, connected IPs, and accumulated
+core upload/download totals alongside management controls, without explanatory panels.
+When no tunnels are open, saved totals and previous activity remain visible.
 These are socket measurements, not device counts or proof of authentication.
 Separate V2Ray totals retain accumulated traffic attributed to authenticated credentials,
 persisted with Sequelize in embedded SQLite across gateway and V2Ray restarts.

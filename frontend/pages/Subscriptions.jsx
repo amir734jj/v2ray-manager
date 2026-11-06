@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'preact/hooks';
+import prettyBytes from 'pretty-bytes';
 import { api, errorMessage } from '../api.js';
+import TrafficRate from '../components/TrafficRate.jsx';
 import { useResource } from '../useResource.js';
 
 function Timestamp({ value, empty }) {
   return value ? <time dateTime={value}>{new Date(value).toLocaleString()}</time> : empty;
+}
+
+function CoreBytes({ value, status }) {
+  if (value === null) return status === 'error' ? 'Unavailable' : 'Collecting...';
+  return <span title={`${value} bytes`}>{prettyBytes(Number(value), { binary: true })}</span>;
 }
 
 function IpLimitForm({ connection, busy, onSave }) {
@@ -97,6 +104,10 @@ function SubscriptionList() {
     {loading && <p role="status">Loading subscriptions...</p>}
     {data?.tunnelError && <div class="alert alert-danger" role="alert">{data.tunnelError}</div>}
     {data?.coreStats?.error && <div class="alert alert-warning" role="alert">{data.coreStats.error}</div>}
+    {data?.coreStats?.sampledAt && <p class="small text-body-secondary">
+      Core snapshot: <Timestamp value={data.coreStats.sampledAt} />
+      {data.coreStats.status === 'error' && ' (stale)'}
+    </p>}
     {data?.connections.length === 0 && <p>No subscriptions yet. Create your first subscription above.</p>}
     {data && <div class="d-grid gap-3">
       {data.connections.map(connection => <article class="card" key={connection.id} aria-labelledby={`connection-${connection.id}`}>
@@ -125,6 +136,26 @@ function SubscriptionList() {
               </div> : <p class="small text-body-secondary mb-0">
                 This older URL cannot be recovered. Replace it once to display a new URL here; the old URL will stop working.
               </p>}
+            </div>
+            <dl class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3 mb-0">
+              <div class="col"><dt class="small text-body-secondary">Open tunnels</dt><dd class="mb-0">{connection.gateway.openTunnels}</dd></div>
+              <div class="col"><dt class="small text-body-secondary">Active IPs</dt><dd class="mb-0">{connection.activeIps} / {connection.maxConcurrentIps === 0 ? 'unlimited' : connection.maxConcurrentIps}</dd></div>
+              <div class="col"><dt class="small text-body-secondary">Gateway upload</dt><dd class="mb-0"><TrafficRate value={connection.gateway.traffic.uploadBytesPerSecond} /></dd></div>
+              <div class="col"><dt class="small text-body-secondary">Gateway download</dt><dd class="mb-0"><TrafficRate value={connection.gateway.traffic.downloadBytesPerSecond} /></dd></div>
+              <div class="col"><dt class="small text-body-secondary">Last observed traffic</dt><dd class="mb-0"><Timestamp value={connection.gateway.lastTrafficAt} empty="Not observed" /></dd></div>
+              <div class="col">
+                <dt class="small text-body-secondary">{connection.gateway.connectedSince ? 'Connected since' : 'Previous connection since'}</dt>
+                <dd class="mb-0"><Timestamp value={connection.gateway.connectedSince ?? connection.gateway.lastConnectedSince} empty="No previous connection" /></dd>
+              </div>
+              <div class="col"><dt class="small text-body-secondary">Core upload total</dt><dd class="mb-0"><CoreBytes value={connection.coreTraffic?.uploadBytes ?? null} status={data.coreStats?.status} /></dd></div>
+              <div class="col"><dt class="small text-body-secondary">Core download total</dt><dd class="mb-0"><CoreBytes value={connection.coreTraffic?.downloadBytes ?? null} status={data.coreStats?.status} /></dd></div>
+            </dl>
+            <div class="mt-3">
+              <h3 class="h6">Connected IPs</h3>
+              {connection.connectedIps.length ? <ul class="list-unstyled d-flex flex-wrap gap-2 mb-0"
+                aria-label={`Connected IPs for ${connection.name}`}>
+                {connection.connectedIps.map(ip => <li key={ip}><code class="text-break">{ip}</code></li>)}
+              </ul> : <p class="text-body-secondary mb-0">No IPs currently connected.</p>}
             </div>
             <IpLimitForm connection={connection} busy={busy} onSave={perform} />
         </div>

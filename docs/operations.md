@@ -266,8 +266,9 @@ use gateway controls when immediate revocation is required.
 ### Per-subscription activity and core accounting
 
 The administrator-only `/api/connections`/Socket.IO `connections` snapshots expose
-two separate measurements. Subscription cards retain management controls, URLs,
-and status, without traffic/IP statistics or explanatory panels:
+two separate measurements. Subscription cards show these statistics, connected
+IPs, management controls, URLs, and status without explanatory panels. Saved
+traffic totals and previous activity remain visible when no tunnels are open:
 
 - `connections[].gateway.openTunnels`: every currently open gateway socket for
   that subscription, including sockets beyond the Status page's 1,000-detail limit.
@@ -367,7 +368,8 @@ Admin-only, same-origin POST endpoints:
 
 Administrator API subscription lists and realtime snapshots include `maxConcurrentIps`,
 `activeIps`, and `connectedIps` (a sorted, deduplicated list of normalized IP
-addresses with open tunnels). These details are not displayed on subscription cards.
+addresses with open tunnels). Subscription cards show these details alongside
+the editable limit; `0` means unlimited.
 The API uses the same socket registry
 as limit enforcement, includes all three protocols, and excludes destroyed or
 blocked sockets. These addresses are not persisted as connection history.
