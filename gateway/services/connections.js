@@ -48,6 +48,28 @@ export function createConnectionService({ connections, api, host, disconnect, li
   let coreCounters = new Map();
   const blocked = new Set();
   const appliedCredentials = new Map();
+  const authorizations = new Map();
+  const authorizationCredentials = new Map();
+  let authorizationReady = false;
+
+  function revokeAuthorization(id) {
+    const credential = authorizationCredentials.get(id);
+    if (credential !== undefined) authorizations.delete(credential);
+    authorizationCredentials.delete(id);
+  }
+
+  function cacheAuthorization(row) {
+    revokeAuthorization(row.id);
+    if (stopping || !row.enabled || row.syncStatus !== 'applied') return;
+    authorizations.set(row.credential, { id: row.id, maxConcurrentIps: row.maxConcurrentIps });
+    authorizationCredentials.set(row.id, row.credential);
+  }
+
+  function clearAuthorizations() {
+    authorizationReady = false;
+    authorizations.clear();
+    authorizationCredentials.clear();
+  }
 
   async function guarded(operation) {
     try {
@@ -72,7 +94,11 @@ export function createConnectionService({ connections, api, host, disconnect, li
   async function find(id) {
     if (!uuidPattern.test(id)) throw createError(400, 'Invalid connection ID');
     const row = await connections.findById(id);
-    if (!row) throw createError(404, 'Connection not found');
+    if (!row) {
+      revokeAuthorization(id);
+      disconnect(id);
+      throw createError(404, 'Connection not found');
+    }
     return row;
   }
 
@@ -89,13 +115,15 @@ export function createConnectionService({ connections, api, host, disconnect, li
         await connections.update(row, { syncStatus: 'applied', syncError: null });
         onChange();
       }
+      cacheAuthorization(row);
     } catch (error) {
       const message = 'Live V2Ray update failed; access is blocked until synchronization succeeds.';
-      await connections.update(row, { syncStatus: 'error', syncError: message });
+      revokeAuthorization(row.id);
       disconnect(row.id);
       logger.error({
         connectionId: row.id, errorName: error.name, errorCode: error.original?.code ?? error.code,
       }, 'Tunnel credential synchronization failed');
+      await connections.update(row, { syncStatus: 'error', syncError: message });
       onChange();
       throw createError(503, message);
     }
@@ -103,6 +131,16 @@ export function createConnectionService({ connections, api, host, disconnect, li
 
   async function reconcile() {
     const rows = await connections.all();
+    const desired = new Map(rows.map(row => [row.id, row]));
+    for (const [id, credential] of [...authorizationCredentials]) {
+      const row = desired.get(id);
+      if (!row || row.credential !== credential || !row.enabled || row.syncStatus !== 'applied') {
+        revokeAuthorization(id);
+        disconnect(id);
+      } else {
+        cacheAuthorization(row);
+      }
+    }
     let failed = false;
     for (const row of rows) {
       try {
@@ -112,6 +150,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
         failed = true;
       }
     }
+    authorizationReady = !stopping;
     reconciliationError = failed ? 'Some tunnel credentials could not be synchronized; affected connections are blocked.' : null;
     onChange();
   }
@@ -121,6 +160,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
     try {
       await exclusive(reconcile);
     } catch (error) {
+      clearAuthorizations();
       reconciliationError = 'Tunnel reconciliation failed; check gateway logs.';
       logger.error({ err: error }, 'Tunnel reconciliation failed');
       onChange();
@@ -207,6 +247,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
     },
     async close() {
       stopping = true;
+      clearAuthorizations();
       clearTimeout(timer);
       clearTimeout(statsTimer);
       await Promise.all([queue, pendingStats]);
@@ -250,21 +291,26 @@ export function createConnectionService({ connections, api, host, disconnect, li
     change(id, action, body) {
       return exclusive(async () => {
         if (!['pause', 'resume', 'reset', 'subscription', 'delete', 'limits', 'rename', 'reset-stats'].includes(action)) throw createError(400, 'Unknown connection action');
-        const row = await find(id);
-        const token = ['reset', 'subscription'].includes(action) ? randomUUID() : null;
-        if (action === 'reset-stats') {
-          if (!await collectStats(id)) {
-            throw createError(503, 'Traffic totals could not be reset; check gateway logs and retry. Previously saved totals are unchanged.');
-          }
-        } else if (action === 'rename') {
-          await connections.update(row, { name: subscriptionName(body?.name) });
-        } else if (action === 'limits') {
-          await connections.update(row, { maxConcurrentIps: validateIpLimit(body?.maxConcurrentIps) });
-        } else if (action === 'subscription') {
-          await connections.update(row, { subscriptionTokenHash: tokenHash(token), subscriptionToken: token });
-        } else {
-          blocked.add(id);
-          try {
+        const changesAuthorization = ['pause', 'resume', 'reset', 'delete', 'limits'].includes(action);
+        if (changesAuthorization) blocked.add(id);
+        try {
+          const row = await find(id);
+          const token = ['reset', 'subscription'].includes(action) ? randomUUID() : null;
+          if (action === 'reset-stats') {
+            if (!await collectStats(id)) {
+              throw createError(503, 'Traffic totals could not be reset; check gateway logs and retry. Previously saved totals are unchanged.');
+            }
+          } else if (action === 'rename') {
+            await connections.update(row, { name: subscriptionName(body?.name) });
+          } else if (action === 'limits') {
+            const maxConcurrentIps = validateIpLimit(body?.maxConcurrentIps);
+            revokeAuthorization(id);
+            await connections.update(row, { maxConcurrentIps });
+            cacheAuthorization(row);
+          } else if (action === 'subscription') {
+            await connections.update(row, { subscriptionTokenHash: tokenHash(token), subscriptionToken: token });
+          } else {
+            revokeAuthorization(id);
             await connections.update(row, {
               ...(action === 'reset' ? {
                 credential: randomUUID(), subscriptionTokenHash: tokenHash(token), subscriptionToken: token,
@@ -281,23 +327,25 @@ export function createConnectionService({ connections, api, host, disconnect, li
               appliedCredentials.delete(id);
               coreCounters.delete(id);
             }
-          } finally {
-            blocked.delete(id);
           }
+          onChange();
+          if (action === 'delete') return { deleted: true };
+          return { connection: publicConnection(row), ...(token ? { subscriptionUrl: subscriptionUrl(token) } : {}) };
+        } catch (error) {
+          if (changesAuthorization && (!Number.isInteger(error.status) || error.status >= 500)) revokeAuthorization(id);
+          throw error;
+        } finally {
+          if (changesAuthorization) blocked.delete(id);
         }
-        onChange();
-        if (action === 'delete') return { deleted: true };
-        return { connection: publicConnection(row), ...(token ? { subscriptionUrl: subscriptionUrl(token) } : {}) };
       });
     },
-    async authorize(path) {
+    authorize(path) {
       const parsed = parseTunnelPath(path);
       if (!parsed) return null;
-      return guarded(async () => {
-        const row = await connections.findByCredential(parsed.credential);
-        if (!row || !row.enabled || row.syncStatus !== 'applied' || blocked.has(row.id)) return null;
-        return { id: row.id, protocol: parsed.protocol, maxConcurrentIps: row.maxConcurrentIps };
-      });
+      if (!authorizationReady || stopping) throw createError(503, 'Tunnel authorization is unavailable; awaiting synchronization');
+      const authorization = authorizations.get(parsed.credential);
+      if (!authorization || blocked.has(authorization.id)) return null;
+      return { ...authorization, protocol: parsed.protocol };
     },
     async subscription(token) {
       if (!uuidPattern.test(token) && !/^[a-f0-9]{64}$/.test(token)) throw createError(404, 'Subscription not found');

@@ -5,4 +5,3 @@ export * from './subscriptions.js';
 export * from './sockets.js';
 export * from './paths.js';
 export * from './upstream-traffic.js';
-export * from './workers.js';

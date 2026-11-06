@@ -4,7 +4,7 @@ import {
   attachRealtime, createIpDetails, gatewayEvents, createConnectionService,
   createV2rayApi, tunnelActivitySnapshot,
 } from './services';
-import { createGatewayProxy, createRouteWorkers } from './proxy';
+import { createGatewayProxy } from './proxy';
 import { createGatewayApp } from './app.js';
 import { createDatabase, createResourceHistory } from './database';
 
@@ -31,32 +31,21 @@ try {
 }
 startResourceRecording(resourceHistory, logger);
 let shuttingDown = false;
-let workerFailure;
-let routeWorkers;
 let gatewayProxy;
 let tunnels;
 let server;
 try {
-  routeWorkers = await createRouteWorkers({
+  gatewayProxy = createGatewayProxy({
     upstreamHost,
     ports: {
       vless: process.env.V2RAY_VLESS_PORT ?? '53217',
       vmess: process.env.V2RAY_VMESS_PORT ?? '53218',
       trojan: process.env.V2RAY_TROJAN_PORT ?? '53219',
     },
-    logger,
-    onError(error) {
-      workerFailure = error;
-      if (server) serverError(error);
-    },
-  });
-  gatewayProxy = createGatewayProxy({
-    upstreamHost: '127.0.0.1',
-    ports: routeWorkers.ports,
     blocklist: storedBlocklist,
     logger,
     trustCloudflareHeaders: trustCloudflareHeaders === 'true',
-    logTraffic: false,
+    logTraffic: true,
   });
   tunnels = createConnectionService({
     connections,
@@ -71,7 +60,6 @@ try {
     activitySnapshot: tunnelActivitySnapshot,
   });
   await tunnels.start();
-  if (workerFailure) throw workerFailure;
 } catch (error) {
   await shutdown();
   throw error;
@@ -119,7 +107,6 @@ async function shutdown() {
   }
   gatewayProxy?.close();
   await stopResourceRecording();
-  await routeWorkers?.close();
   try {
     await tunnels?.close();
   } catch (error) {

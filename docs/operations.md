@@ -126,23 +126,20 @@ browser assets, then runs the gateway with `oven/bun:latest` as the non-root
 the base image when rebuilding to pick up newer Bun releases. The generator
 still uses Node. The gateway healthcheck also uses Bun.
 Bun has no `lts` image tag; `latest` tracks its stable releases.
-The gateway forks three Bun proxy workers, one each for VLESS, VMess, and
-Trojan, rather than using Node's cluster module. The main process authorizes
-tunnels and forwards their streams to the appropriate worker over an
-ephemeral loopback-only port; workers proxy to V2Ray and never open database
-connections. The main process owns the single PostgreSQL pool (maximum two
-connections), accounts, blocklist, realtime clients, and history store.
-Blocking an IP or disabling a tunnel closes its main-process sockets across
+The gateway authorizes tunnels in memory and forwards WebSockets directly to
+V2Ray's protocol ports. There are no intermediate proxy workers or loopback
+relay ports. The gateway owns the single PostgreSQL pool (maximum two
+connections), accounts, blocklist, realtime clients, and history store;
+establishing a tunnel does not query that pool.
+Blocking an IP or disabling a tunnel closes its gateway sockets across
 all routes. Active sockets are indexed by subscription, so concurrent-IP checks,
 subscription IP lists, and targeted disconnects inspect only that subscription's
 sockets. Closed sockets are removed from the index, and empty entries are deleted.
 These checks do not add work to forwarded data chunks.
 Dashboard tunnel counters and throughput still measure the
-client-facing sockets; upstream throughput logs are emitted per protocol by
-the workers. Process CPU/memory metrics describe the main process, not the
-combined worker processes. A worker failure shuts down the gateway so the
-container restart policy restarts the complete group; shutdown closes all
-workers and their tunnels. No additional ports should be published.
+client-facing sockets; the gateway emits upstream throughput logs per protocol.
+Process CPU/memory metrics describe the gateway process, not V2Ray. Shutdown
+closes all proxied tunnels. No additional ports should be published.
 For a non-Docker setup, install Node/npm for the build and Bun for the gateway:
 
 ```bash
@@ -195,7 +192,7 @@ The administrator's **Subscriptions** page provides:
 - **Concurrent IP limit:** set at creation or edit with **Save limit**.
   `0` means unlimited and is the default for new subscriptions.
   The gateway counts distinct normalized client IPs with open tunnels for that
-  subscription across all three protocol workers, including pending handshakes.
+  subscription across all three protocols, including pending handshakes.
   A new IP receives HTTP 429 when the limit is reached; existing IPs may open
   more tunnels. A slot is released when that IP's last tunnel closes.
   Lowering the limit keeps existing tunnels/IPs connected and rejects new IPs
@@ -209,7 +206,7 @@ Client IPs come from the peer socket, or validated `CF-Connecting-IP` when
 only with origin access restricted to trusted proxies; otherwise the limit
 counts proxy IPs or can be bypassed with forged headers. Limited subscriptions
 reject tunnels if no client IP is available. The limit is enforced at the gateway,
-not inside V2Ray; keep direct V2Ray and worker ports inaccessible.
+not inside V2Ray; keep direct V2Ray ports inaccessible.
 
 Subscription URLs have the form `https://<V2RAY_HOST>/subscriptions/<token>`.
 They return a Base64-encoded list of share links, without dashboard login.
@@ -253,6 +250,18 @@ an error in Subscriptions; affected connections remain blocked until a retry suc
 A failed action may have saved its desired state, so inspect its status before
 retrying. Only one gateway may manage a V2Ray instance; multi-instance
 coordination is not supported.
+
+Tunnel authorization reads a plain in-memory credential snapshot populated by
+successful synchronization. Create, pause/resume, reset, delete, and concurrent-IP
+limit changes update or invalidate the affected entry before the action completes.
+Authorization-changing actions block new tunnels while in progress; failed writes
+or synchronization do not leave the previous cached credential usable.
+Unknown credentials are rejected without a database lookup. A failed reconciliation
+clears the snapshot and returns HTTP 503 for new tunnels until a refresh succeeds;
+it does not by itself disconnect established streams. Individual synchronization
+failures block only the affected subscription. Shutdown disables authorization.
+Direct SQL changes are picked up by the next reconciliation, not immediately;
+use gateway controls when immediate revocation is required.
 
 ### Per-subscription activity and core accounting
 
@@ -515,6 +524,7 @@ from templates if necessary.
   in status. Error stacks are escaped inside the error field, not printed on
   separate lines. Restrict log access and retention.
   Every **five seconds**, `Gateway upstream throughput` reports
+  the `protocol` (`vless`, `vmess`, or `trojan`),
   `gatewayToV2rayMbps` and `v2rayToGatewayMbps` in decimal megabits per second,
   cumulative `gatewayToV2rayBytes` and `v2rayToGatewayBytes`, and the actual
   `intervalSeconds` rounded to two decimal places for display. Rates use the
@@ -556,8 +566,8 @@ Gateway services live in [gateway/services](../gateway/services).
 Public folder entry points collect exports for extensionless directory imports
 such as `import { normalizeIp } from '../services'`. Bun resolves these imports
 to the folder's `index.js`; native Node.js ESM does not support this syntax.
-Sibling imports and lightweight proxy-worker dependencies remain direct to avoid
-barrel-import cycles and loading unrelated services into workers.
+Sibling imports remain direct to avoid barrel-import cycles and loading unrelated
+services into lightweight modules.
 The server and health-check entrypoints remain in `gateway`.
 HTTP routes are grouped by resource in [gateway/controllers](../gateway/controllers).
 Controllers serve the frontend pages and dashboard APIs; services retain

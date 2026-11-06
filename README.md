@@ -7,9 +7,9 @@ Cloudflare and Coolify.
 Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 ```
 
-The Bun gateway starts one dedicated proxy process per protocol (VLESS, VMess,
-and Trojan). Authentication, blocking, dashboard state, and a single PostgreSQL
-pool capped at two connections remain in the main process.
+The Bun gateway handles VLESS, VMess, and Trojan in one process and forwards
+WebSockets directly to V2Ray. It owns authentication, blocking, dashboard state,
+and a single PostgreSQL pool capped at two connections.
 
 ## Deploy
 
@@ -35,6 +35,9 @@ pool capped at two connections remain in the main process.
    Clients connect on port **443**.
 
 Tunnel access uses subscription-specific private paths and credentials, not dashboard cookies.
+The gateway forwards WebSockets directly to V2Ray, without intermediate proxy
+workers. Tunnel authorization uses an in-memory snapshot updated by subscription
+controls and periodic database reconciliation, not a database query per connection.
 Do not expose V2Ray's internal ports or its unauthenticated management API.
 
 ## Independent subscriptions

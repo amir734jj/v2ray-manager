@@ -34,7 +34,7 @@ export function createTunnelHandler({
     };
   }
 
-  async function upgradeTunnel(request, socket, head) {
+  function upgradeTunnel(request, socket, head) {
     const path = new URL(request.url, 'http://localhost').pathname;
     if (path.startsWith('/socket.io/')) return;
     const parsed = parseTunnelPath(path);
@@ -42,7 +42,7 @@ export function createTunnelHandler({
       socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
       return;
     }
-    const tunnel = await tunnels.authorize(path);
+    const tunnel = tunnels.authorize(path);
     if (socket.destroyed) return;
     if (!tunnel) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
@@ -91,9 +91,11 @@ export function createTunnelHandler({
   }
 
   return (request, socket, head) => {
-    upgradeTunnel(request, socket, head).catch(error => {
+    try {
+      upgradeTunnel(request, socket, head);
+    } catch (error) {
       logger.error({ err: error }, 'Tunnel authorization failed');
       if (!socket.destroyed) socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-    });
+    }
   };
 }
