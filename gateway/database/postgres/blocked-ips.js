@@ -58,23 +58,30 @@ export async function createBlocklist(database) {
   }, {
     tableName: 'gateway_ip_blocklist',
     timestamps: false,
+    hooks: {
+      async afterSync(options) {
+        const queryInterface = database.getQueryInterface();
+        const table = BlockedIp.getTableName();
+        const name = 'gateway_ip_blocklist_host_check';
+        const queryOptions = { transaction: options.transaction, logging: options.logging };
+        const constraints = await queryInterface.showConstraint(table, name, queryOptions);
+        if (constraints.some(constraint => constraint.constraintName === name)) return;
+        await queryInterface.addConstraint(table, {
+          ...queryOptions,
+          fields: ['ip'],
+          type: 'check',
+          name,
+          where: {
+            [Op.or]: [
+              { [Op.and]: [where(fn('family', col('ip')), 4), where(fn('masklen', col('ip')), 32)] },
+              { [Op.and]: [where(fn('family', col('ip')), 6), where(fn('masklen', col('ip')), 128)] },
+            ],
+          },
+        });
+      },
+    },
   });
   await BlockedIp.sync();
-  try {
-    await database.getQueryInterface().addConstraint(BlockedIp.getTableName(), {
-      fields: ['ip'],
-      type: 'check',
-      name: 'gateway_ip_blocklist_host_check',
-      where: {
-        [Op.or]: [
-          { [Op.and]: [where(fn('family', col('ip')), 4), where(fn('masklen', col('ip')), 32)] },
-          { [Op.and]: [where(fn('family', col('ip')), 6), where(fn('masklen', col('ip')), 128)] },
-        ],
-      },
-    });
-  } catch (error) {
-    if (error.original?.code !== '42710') throw error;
-  }
   const state = { database, BlockedIp, blocked: await loadBlockedIps(BlockedIp), busy: false };
 
   return {

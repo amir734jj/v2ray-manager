@@ -24,7 +24,7 @@ export async function createDatabase(url) {
     return {
       blocklist: await createBlocklist(database),
       accounts,
-      connections: await initializeTunnelConnections(database, users.model),
+      connections: await initializeTunnelConnections(database),
       close: () => database.close(),
     };
   } catch (error) {

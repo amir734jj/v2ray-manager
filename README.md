@@ -44,6 +44,11 @@ creating or activating dashboard accounts. **Users** manages dashboard access
 only. Each subscription has its own credentials, URL, controls, and traffic
 statistics across VLESS, VMess, and Trojan.
 
+All generated share links include a URL-encoded `#name` fragment. VMess also
+keeps its name in the embedded `ps` field for clients that use that field.
+Refresh the subscription in your client to receive updated link labels.
+Each subscription response shuffles the link order without changing the links.
+
 Administrators can **Pause**, **Resume**, **Reset credentials**, **Delete subscription**, or
 **Replace subscription URL** from **Subscriptions**. Pausing closes only that subscription's
 tunnels; changes are applied live without restarting V2Ray or other users.
@@ -61,9 +66,9 @@ New IPs are rejected at the limit; existing IPs can keep opening tunnels.
 Lowering the limit does not disconnect existing IPs. Devices sharing a public
 IP count together, and one device can use more than one IP.
 
-Existing account-linked subscriptions are migrated automatically to independent
-subscriptions named after their former account. Their credentials and URLs stay
-valid; back up PostgreSQL before upgrading.
+The gateway expects the current database schema. Legacy subscription schemas
+are no longer upgraded automatically; existing deployments must already have
+the schema changes applied.
 
 The administrator's Subscriptions page also shows each subscription's open gateway tunnels,
 oldest open tunnel time, upload/download speed, and last observed socket traffic.

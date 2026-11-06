@@ -189,7 +189,7 @@ The administrator's **Subscriptions** page provides:
   record. Its URL and cached profiles stop working. If cleanup fails, an error
   is shown and the record stays disabled; retry deletion after resolving the error.
 - **Concurrent IP limit:** set at creation or edit with **Save limit**.
-  `0` means unlimited; existing subscriptions are migrated with this default.
+  `0` means unlimited and is the default for new subscriptions.
   The gateway counts distinct normalized client IPs with open tunnels for that
   subscription across all three protocol workers, including pending handshakes.
   A new IP receives HTTP 429 when the limit is reached; existing IPs may open
@@ -562,7 +562,12 @@ logging, and the subscription endpoint used by V2Ray clients.
 [gateway/app.js](../gateway/app.js) composes the frontend and subscription routes
 with shared security headers and error handling. Existing authentication,
 same-origin checks, body-size limits, and rate limits remain in place.
-The table and constraint are initialized at startup; there are no versioned migrations.
+Missing tables are initialized at startup with Sequelize `sync()`. The blocklist
+model's `afterSync` hook creates `gateway_ip_blocklist_host_check` only when it is
+missing, enforcing host-only IPv4 and IPv6 addresses. Constraint inspection or
+creation failures stop startup. Legacy subscription schema upgrades are no
+longer performed; existing deployments must already have those changes applied.
+
 The gateway loads a bounded cache at startup and updates it after committed
 changes through this page. Use a single gateway instance; direct SQL changes
 require restarting it to reload the cache. Conflicting concurrent updates are

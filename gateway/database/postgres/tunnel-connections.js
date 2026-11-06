@@ -4,7 +4,7 @@ import createError from 'http-errors';
 const publicFields = ['id', 'name', 'maxConcurrentIps', 'enabled', 'syncStatus', 'syncError', 'createdAt'];
 export const publicConnection = row => Object.fromEntries(publicFields.map(field => [field, row[field]]));
 
-export async function initializeTunnelConnections(database, User) {
+export async function initializeTunnelConnections(database) {
   const Connection = database.define('TunnelConnection', {
     id: { type: DataTypes.UUID, defaultValue: DataTypes.UUIDV4, primaryKey: true },
     name: { type: DataTypes.STRING(128), allowNull: false },
@@ -17,38 +17,6 @@ export async function initializeTunnelConnections(database, User) {
     syncError: { type: DataTypes.STRING(256), allowNull: true },
   }, { tableName: 'gateway_tunnel_connections' });
   await Connection.sync();
-  const queryInterface = database.getQueryInterface();
-  const columns = await queryInterface.describeTable('gateway_tunnel_connections');
-  if (!columns.name || columns.userId || !columns.subscriptionToken || !columns.maxConcurrentIps) {
-    await database.transaction(async transaction => {
-      if (!columns.name) {
-        await queryInterface.addColumn('gateway_tunnel_connections', 'name', {
-          type: DataTypes.STRING(128), allowNull: false, defaultValue: 'Subscription',
-        }, { transaction });
-        if (columns.userId) {
-          const users = await User.findAll({ attributes: ['id', 'username'], raw: true, transaction });
-          for (const user of users) {
-            await queryInterface.bulkUpdate('gateway_tunnel_connections', { name: user.username }, {
-              userId: user.id,
-            }, { transaction });
-          }
-        }
-      }
-      if (columns.userId) {
-        await queryInterface.removeColumn('gateway_tunnel_connections', 'userId', { transaction });
-      }
-      if (!columns.subscriptionToken) {
-        await queryInterface.addColumn('gateway_tunnel_connections', 'subscriptionToken', {
-          type: DataTypes.STRING(64), allowNull: true,
-        }, { transaction });
-      }
-      if (!columns.maxConcurrentIps) {
-        await queryInterface.addColumn('gateway_tunnel_connections', 'maxConcurrentIps', {
-          type: DataTypes.INTEGER, allowNull: false, defaultValue: 0,
-        }, { transaction });
-      }
-    });
-  }
 
   return {
     all: () => Connection.findAll(),
