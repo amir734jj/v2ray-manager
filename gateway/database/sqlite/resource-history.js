@@ -1,4 +1,5 @@
-import { ClassicLevel } from 'classic-level';
+import { join } from 'node:path';
+import { DataTypes, Op, Sequelize } from 'sequelize';
 import createError from 'http-errors';
 import { createTrafficUsage } from './traffic-usage.js';
 
@@ -12,22 +13,13 @@ export const RESOURCE_RANGES = {
 
 const RETENTION_MS = RESOURCE_RANGES['24h'];
 const BUCKETS = 300;
-const CLEANUP_BATCH = 256;
-const TIMESTAMP_KEY_WIDTH = String(Number.MAX_SAFE_INTEGER).length;
+const READ_BATCH = 256;
 const REQUIRED_METRICS = ['cpuPercent', 'rssBytes', 'heapUsedBytes', 'heapTotalBytes'];
 const OPTIONAL_METRICS = [
   'uploadBytesPerSecond', 'downloadBytesPerSecond',
   'openClientSockets', 'connectionAttempts', 'proxyFailures',
 ];
 const METRICS = [...REQUIRED_METRICS, ...OPTIONAL_METRICS];
-
-function keyFor(timestamp) {
-  if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
-    throw new RangeError('Resource history keys require a non-negative integer timestamp');
-  }
-  // Fixed-width keys sort chronologically in LevelDB.
-  return String(timestamp).padStart(TIMESTAMP_KEY_WIDTH, '0');
-}
 
 function createSeries() {
   return Object.fromEntries(METRICS.map(metric => [metric, { min: null, max: null, count: 0, buckets: new Map() }]));
@@ -79,34 +71,23 @@ function finishSeries(series) {
 }
 
 class ResourceHistory {
-  constructor(database, trafficUsage, clock = Date.now) {
+  constructor(database, Sample, trafficUsage, clock = Date.now) {
     this.database = database;
+    this.Sample = Sample;
     this.trafficUsage = trafficUsage;
     this.clock = clock;
   }
 
-  async pruneBatch() {
-    const operations = [];
-    for await (const key of this.database.keys({
-      gte: keyFor(0),
-      lt: keyFor(Math.max(0, this.clock() - RETENTION_MS)),
-      limit: CLEANUP_BATCH,
-      fillCache: false,
-    })) {
-      operations.push({ type: 'del', key });
-    }
-    if (operations.length) await this.database.batch(operations);
-    return operations.length;
-  }
-
   async pruneExpired() {
-    while (await this.pruneBatch() === CLEANUP_BATCH) {}
+    await this.Sample.destroy({
+      where: { timestamp: { [Op.lt]: this.clock() - RETENTION_MS } },
+    });
   }
 
   async record(sample) {
     validateSample(sample);
-    await this.database.put(keyFor(sample.timestamp), sample);
-    await this.pruneBatch();
+    await this.Sample.upsert({ timestamp: sample.timestamp, sample });
+    await this.pruneExpired();
   }
 
   async read(range) {
@@ -118,11 +99,20 @@ class ResourceHistory {
     const start = end - duration;
     const series = createSeries();
     let count = 0;
-    for await (const [, sample] of this.database.iterator({
-      gte: keyFor(Math.max(0, start)), lte: keyFor(end), fillCache: false,
-    })) {
-      addToSeries(series, sample, start, duration);
-      count++;
+    let after = start - 1;
+    for (;;) {
+      const rows = await this.Sample.findAll({
+        attributes: ['timestamp', 'sample'],
+        where: { timestamp: { [Op.gt]: after, [Op.lte]: end } },
+        order: [['timestamp', 'ASC']],
+        limit: READ_BATCH,
+      });
+      for (const { sample } of rows) {
+        addToSeries(series, sample, start, duration);
+        count++;
+      }
+      if (rows.length < READ_BATCH) break;
+      after = Number(rows.at(-1).timestamp);
     }
     return { start, end, count, series: finishSeries(series) };
   }
@@ -133,15 +123,20 @@ class ResourceHistory {
 }
 
 export async function createResourceHistory(path) {
-  const database = new ClassicLevel(path, {
-    valueEncoding: 'json',
-    cacheSize: 256 * 1024,
-    writeBufferSize: 1024 * 1024,
+  const database = new Sequelize({
+    dialect: 'sqlite',
+    storage: join(path, 'metrics.sqlite'),
+    logging: false,
+    retry: { match: [/SQLITE_BUSY/], max: 5 },
   });
-  await database.open();
   try {
-    const trafficUsage = await createTrafficUsage(database.sublevel('subscription-traffic', { valueEncoding: 'json' }));
-    const history = new ResourceHistory(database, trafficUsage);
+    const Sample = database.define('ResourceSample', {
+      timestamp: { type: DataTypes.BIGINT, primaryKey: true },
+      sample: { type: DataTypes.JSON, allowNull: false },
+    }, { tableName: 'gateway_resource_samples', timestamps: false });
+    await Sample.sync();
+    const trafficUsage = await createTrafficUsage(database);
+    const history = new ResourceHistory(database, Sample, trafficUsage);
     await history.pruneExpired();
     return history;
   } catch (error) {

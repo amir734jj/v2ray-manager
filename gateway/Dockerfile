@@ -9,6 +9,9 @@ COPY frontend/ ./frontend/
 RUN npm run build
 
 FROM node:lts-bookworm-slim AS gateway-dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/

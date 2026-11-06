@@ -1,2 +1,2 @@
-export { createDatabase } from './connection.js';
-export { createResourceHistory } from './resource-history.js';
+export * from './postgres/index.js';
+export * from './sqlite/index.js';

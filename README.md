@@ -69,7 +69,7 @@ The administrator's Subscriptions page also shows each subscription's open gatew
 oldest open tunnel time, upload/download speed, and last observed socket traffic.
 These are socket measurements, not device counts or proof of authentication.
 Separate V2Ray totals show accumulated traffic attributed to authenticated credentials,
-persisted in the embedded LevelDB store across gateway and V2Ray restarts.
+persisted with Sequelize in embedded SQLite across gateway and V2Ray restarts.
 Both update about every five seconds; collection or storage failures mark core
 totals stale instead of reporting zero. Preserve the `gateway-metrics` volume.
 Accumulated totals are separate from the charts' 24-hour retention.
@@ -88,7 +88,10 @@ Select **Show history graphs** to see time ranges, zoom, and lowest/highest
 values for these metrics. Graphs are hidden by default. Connection attempts
 and proxy failures are cumulative and reset when the gateway restarts.
 Samples are recorded every five seconds and retained for 24 hours in the
-`gateway-metrics` LevelDB volume. Preserve that volume across redeploys.
+`gateway-metrics` volume in `metrics.sqlite`. Preserve that volume across redeploys.
+The SQLite upgrade starts fresh: old LevelDB files are left untouched but are not
+imported. Charts start empty; traffic totals start from the currently available
+V2Ray counters. PostgreSQL accounts and subscriptions are unchanged.
 
 The administrator can block IPs from the dashboard. Enable
 `GATEWAY_TRUST_CLOUDFLARE_HEADERS=true` only when origin access is restricted

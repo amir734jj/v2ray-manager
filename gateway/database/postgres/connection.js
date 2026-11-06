@@ -1,5 +1,5 @@
 import { Sequelize } from 'sequelize';
-import { initializeAccounts } from '../services';
+import { initializeAccounts } from '../../services';
 import { createBlocklist } from './blocked-ips.js';
 import { initializeUsers } from './users.js';
 import { initializeSessions } from './sessions.js';

@@ -290,10 +290,13 @@ last successful sample time, core uptime, and any collection error. Failed reads
 show a warning; cached totals remain explicitly stale, or unavailable if nothing
 has been collected. Statistics failures do not pause working connections.
 
-Core totals accumulate in the existing embedded LevelDB store and survive gateway
-and V2Ray restarts, credential resets, and pause/resume. A separate
-`subscription-traffic` sublevel stores totals and raw-counter checkpoints together
-in a synchronous atomic write after each successful sample. V2Ray uptime and
+Core totals accumulate in embedded SQLite through Sequelize and survive gateway
+and V2Ray restarts, credential resets, and pause/resume. The
+`gateway_traffic_checkpoints` table stores totals and raw-counter checkpoints together
+in a committed transaction after each successful sample. Each update acquires an
+immediate write transaction and reloads the committed checkpoint before computing
+deltas, preventing concurrent writers from overwriting a stale cached checkpoint.
+Out-of-order samples are rejected rather than being counted as resets. V2Ray uptime and
 RPC timing identify process restarts, including restarts while the gateway is
 offline; lower raw counters are also treated as counter resets. Repeated samples
 and gateway restarts do not count the same bytes twice.
@@ -309,8 +312,17 @@ removed on the next successful sample.
 
 Preserve and back up the `gateway-metrics` volume at `GATEWAY_METRICS_PATH`.
 Accumulated totals are not subject to the charts' 24-hour retention. Removing that
-volume loses the accumulated totals and checkpoints. Only one gateway may open it.
+volume loses the accumulated totals and checkpoints. SQLite uses local file locks
+and bounded retries for `SQLITE_BUSY`; only one writer commits at a time.
+Do not share the database over a network filesystem. The application still
+requires one gateway owner per V2Ray instance: SQLite does not coordinate
+in-memory IP limits, live sockets, or V2Ray credential reconciliation.
 Gateway socket metrics remain in memory; no per-subscription timers are added.
+
+The SQLite upgrade starts a fresh `metrics.sqlite` file in the existing metrics
+directory. Old LevelDB files are left untouched and are not imported. Charts
+start empty and accumulated totals begin with the currently available V2Ray
+counters; PostgreSQL accounts, subscriptions, and credentials are unchanged.
 
 Admin-only, same-origin POST endpoints:
 
@@ -395,16 +407,17 @@ from templates if necessary.
   and lines connect samples across gaps (including gateway downtime). The authenticated `/api/resource-history`
   endpoint provides the same bounded summaries. Bun can report heap used
   greater than heap allocated, so do not treat these values as a utilization ratio.
-  Samples are kept in a disk-backed LevelDB database for 24 hours across gateway
+  Samples are kept in embedded SQLite through Sequelize for 24 hours across gateway
   restarts, then deleted; they are not kept as a full history in application memory.
-  LevelDB still uses a small write buffer and cache. The Docker volume
+  Indexed numeric timestamps replace padded string keys, and history reads use
+  bounded, ordered batches before aggregating chart buckets. The Docker volume
   `gateway-metrics` must be preserved across redeploys and writable by the
   container's `bun` user. It stores gateway CPU, memory, proxy throughput, and
-  connection counter samples. Older samples remain available; connection
-  counter history starts when this version is deployed.
+  connection   counter samples and persistent subscription traffic checkpoints.
   For non-Docker use, `GATEWAY_METRICS_PATH` overrides the default
-  `./data/resource-history` directory. Only one gateway process may open the
-  same LevelDB directory at a time. Database open and write failures are logged;
+  `./data/resource-history` directory; the database file is `metrics.sqlite`
+  inside that directory. Back up the volume with the gateway stopped, or use
+  SQLite's online backup facilities. Database open and write failures are logged;
   the dashboard reports recording errors and failed history requests.
 - **Status:** `https://v2ray.hesamian.com` (or `/status` on the gateway).
   Socket.IO pushes connection, blocklist and user changes, along with periodic
@@ -510,11 +523,14 @@ Per-user credentials identify access to a connection, not individual devices.
 The list is limited to **1,000 IPs**, with no automatic eviction. Sequelize
 uses PostgreSQL to store it in `gateway_ip_blocklist` via `DATABASE_URL`; the database role
 needs permission to create, alter, and update that table. There is no local-file fallback.
-Database initialization is in [gateway/database/connection.js](../gateway/database/connection.js).
+PostgreSQL initialization is in [gateway/database/postgres/connection.js](../gateway/database/postgres/connection.js).
 Each entity owns its model and database operations in
-[gateway/database](../gateway/database): `users.js`, `sessions.js`,
-`blocked-ips.js`, and `tunnel-connections.js`. LevelDB metrics storage is in
-`resource-history.js` and `traffic-usage.js` in the same folder. Authentication and tunnel-control
+[gateway/database/postgres](../gateway/database/postgres): `users.js`, `sessions.js`,
+`blocked-ips.js`, and `tunnel-connections.js`. Sequelize/SQLite metrics storage is in
+[gateway/database/sqlite](../gateway/database/sqlite): `resource-history.js` and
+`traffic-usage.js`. Each database folder has its own `index.js` barrel; the shared
+[database entry point](../gateway/database/index.js) re-exports both barrels.
+Authentication and tunnel-control
 services use these repositories rather than issuing database queries directly.
 Gateway services live in [gateway/services](../gateway/services).
 Public folder entry points collect exports for extensionless directory imports
@@ -539,7 +555,7 @@ require restarting it to reload the cache. Conflicting concurrent updates are
 rejected and can be retried. Database initialization failures
 stop startup; failed updates report an error and do not disconnect clients.
 Live connection details stay in memory only. Aggregate counter samples are
-stored in LevelDB; no connection history, headers, or payloads are written to
+stored in SQLite; no connection history, headers, or payloads are written to
 PostgreSQL.
 Behind Cloudflare, enable trusted client headers as described below, or the
 blocked address may be your reverse proxy rather than an individual client.

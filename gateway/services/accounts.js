@@ -2,7 +2,7 @@ import { createHash, randomBytes, scrypt as deriveKey, timingSafeEqual } from 'n
 import { promisify } from 'node:util';
 import * as argon2 from 'argon2';
 import createError from 'http-errors';
-import { publicUser } from '../database/users.js';
+import { publicUser } from '../database/postgres/users.js';
 
 const scrypt = promisify(deriveKey);
 export const SESSION_SECONDS = 7 * 24 * 60 * 60;

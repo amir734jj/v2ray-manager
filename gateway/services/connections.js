@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import createError from 'http-errors';
 import { createConnectionUrls, protocols, validateHost } from '@v2ray-manager/generator';
-import { publicConnection } from '../database/tunnel-connections.js';
+import { publicConnection } from '../database/postgres/tunnel-connections.js';
 import { parseTunnelPath } from '../proxy/paths.js';
 
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
