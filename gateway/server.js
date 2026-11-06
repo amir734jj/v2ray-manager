@@ -65,7 +65,7 @@ try {
     logger,
     onChange: () => gatewayEvents.emit('connections'),
     disconnect: gatewayProxy.disconnectTunnel,
-    countIps: gatewayProxy.countTunnelIps,
+    listIps: gatewayProxy.listTunnelIps,
     trafficUsage: resourceHistory.trafficUsage,
   });
   await tunnels.start();

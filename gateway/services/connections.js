@@ -33,7 +33,7 @@ export function subscriptionContent(connection, host) {
   return Buffer.from(Object.values(createConnectionUrls(config, host)).join('\n') + '\n').toString('base64');
 }
 
-export function createConnectionService({ connections, api, host, disconnect, countIps, trafficUsage, logger, onChange = () => {} }) {
+export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, logger, onChange = () => {} }) {
   validateHost(host);
   let queue = Promise.resolve();
   let stopping = false;
@@ -129,7 +129,7 @@ export function createConnectionService({ connections, api, host, disconnect, co
     }
   }
 
-  async function collectStats() {
+  async function collectStats(resetId) {
     try {
       const sample = await api.stats();
       const counters = new Map();
@@ -143,7 +143,7 @@ export function createConnectionService({ connections, api, host, disconnect, co
         counters.set(match[1], current);
       }
       const rows = await connections.list();
-      const saved = await trafficUsage.record(sample, counters, rows.map(row => row.id));
+      const saved = await trafficUsage.record(sample, counters, rows.map(row => row.id), resetId);
       coreCounters = saved.counters;
       coreStats = { status: 'ready', sampledAt: sample.sampledAt, uptimeSeconds: sample.uptimeSeconds, error: null };
     } catch (error) {
@@ -153,8 +153,11 @@ export function createConnectionService({ connections, api, host, disconnect, co
         error: 'Traffic totals could not be collected or saved; displayed totals may be stale. Check gateway logs, the embedded metrics store, and the V2Ray StatsService.',
       };
       logger.warn({ err: error }, 'V2Ray traffic collection or persistence failed');
+      onChange();
+      return false;
     }
     onChange();
+    return true;
   }
 
   async function scheduleStats() {
@@ -189,12 +192,16 @@ export function createConnectionService({ connections, api, host, disconnect, co
       return guarded(async () => {
         const rows = await connections.list();
         return {
-          connections: rows.map(row => ({
-            ...publicConnection(row),
-            activeIps: countIps(row.id),
-            subscriptionUrl: row.subscriptionToken ? subscriptionUrl(row.subscriptionToken) : null,
-            coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
-          })),
+          connections: rows.map(row => {
+            const connectedIps = listIps(row.id);
+            return {
+              ...publicConnection(row),
+              activeIps: connectedIps.length,
+              connectedIps,
+              subscriptionUrl: row.subscriptionToken ? subscriptionUrl(row.subscriptionToken) : null,
+              coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
+            };
+          }),
           error: reconciliationError,
           coreStats: { ...coreStats },
         };
@@ -216,10 +223,14 @@ export function createConnectionService({ connections, api, host, disconnect, co
     },
     change(id, action, body) {
       return exclusive(async () => {
-        if (!['pause', 'resume', 'reset', 'subscription', 'delete', 'limits', 'rename'].includes(action)) throw createError(400, 'Unknown connection action');
+        if (!['pause', 'resume', 'reset', 'subscription', 'delete', 'limits', 'rename', 'reset-stats'].includes(action)) throw createError(400, 'Unknown connection action');
         const row = await find(id);
         const token = ['reset', 'subscription'].includes(action) ? randomUUID() : null;
-        if (action === 'rename') {
+        if (action === 'reset-stats') {
+          if (!await collectStats(id)) {
+            throw createError(503, 'Traffic totals could not be reset; check gateway logs and retry. Previously saved totals are unchanged.');
+          }
+        } else if (action === 'rename') {
           await connections.update(row, { name: subscriptionName(body?.name) });
         } else if (action === 'limits') {
           await connections.update(row, { maxConcurrentIps: validateIpLimit(body?.maxConcurrentIps) });

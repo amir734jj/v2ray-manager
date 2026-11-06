@@ -29,7 +29,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
 
   return {
     disconnectTunnel: id => disconnectTunnelSockets(sockets, id),
-    countTunnelIps: id => activeTunnelIps(sockets, id).size,
+    listTunnelIps: id => [...activeTunnelIps(sockets, id)].sort(),
     blocklist: {
       list: blocklist.list,
       async block(value) {

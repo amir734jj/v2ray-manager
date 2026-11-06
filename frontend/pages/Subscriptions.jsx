@@ -62,6 +62,7 @@ function SubscriptionList() {
 
   function change(connection, action) {
     if (action === 'reset' && !window.confirm(`Reset credentials for ${connection.name}? Existing profiles and the subscription URL will stop working.`)) return;
+    if (action === 'reset-stats' && !window.confirm(`Reset accumulated upload and download totals for ${connection.name} to zero? This cannot be undone. Active connections and credentials will not change.`)) return;
     if (action === 'subscription' && !window.confirm(`Replace the subscription URL for ${connection.name}? The old URL will stop updating, but existing tunnel profiles will continue working.`)) return;
     if (action === 'delete' && !window.confirm(`Permanently delete ${connection.name}? Its subscription URL and existing profiles will stop working, and active tunnels will be closed. This cannot be undone.`)) return;
     perform(`/api/connections/${connection.id}/${action}`);
@@ -171,6 +172,13 @@ function SubscriptionList() {
               <div class="col"><dt class="small text-body-secondary">Core upload total</dt><dd class="mb-0"><CoreBytes value={connection.coreTraffic?.uploadBytes ?? null} status={data.coreStats?.status} /></dd></div>
               <div class="col"><dt class="small text-body-secondary">Core download total</dt><dd class="mb-0"><CoreBytes value={connection.coreTraffic?.downloadBytes ?? null} status={data.coreStats?.status} /></dd></div>
             </dl>
+            <div class="mt-3">
+              <h3 class="h6">Connected IPs</h3>
+              {connection.connectedIps.length ? <ul class="list-unstyled d-flex flex-wrap gap-2 mb-0"
+                aria-label={`Connected IPs for ${connection.name}`}>
+                {connection.connectedIps.map(ip => <li key={ip}><code class="text-break">{ip}</code></li>)}
+              </ul> : <p class="text-body-secondary mb-0">No IPs currently connected.</p>}
+            </div>
             <IpLimitForm connection={connection} busy={busy} onSave={perform} />
         </div>
         <div class="card-footer d-flex flex-wrap gap-2">
@@ -182,6 +190,8 @@ function SubscriptionList() {
             </button>
             <button class="btn btn-sm btn-outline-danger" disabled={busy}
               onClick={() => change(connection, 'reset')}>Reset credentials</button>
+            <button class="btn btn-sm btn-outline-danger" disabled={busy}
+              onClick={() => change(connection, 'reset-stats')}>Reset traffic totals</button>
             <button class="btn btn-sm btn-outline-primary" disabled={busy}
               onClick={() => change(connection, 'subscription')}>Replace subscription URL</button>
             <button class="btn btn-sm btn-danger" disabled={busy}

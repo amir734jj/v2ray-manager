@@ -49,8 +49,11 @@ export async function createTrafficUsage(database) {
 
   return {
     snapshot,
-    async record(sample, counters, ids) {
+    async record(sample, counters, ids, resetId) {
       validateWindow(sample.bootWindow);
+      if (resetId !== undefined && !ids.includes(resetId)) {
+        throw new Error('Cannot reset traffic for an unknown subscription');
+      }
       const sameBoot = state && sample.uptimeSeconds >= state.uptimeSeconds
         && sample.bootWindow.min <= state.bootWindow.max && sample.bootWindow.max >= state.bootWindow.min;
       const connections = {};
@@ -63,7 +66,7 @@ export async function createTrafficUsage(database) {
           const raw = current?.[field] === undefined ? previousRaw : BigInt(current[field]);
           if (raw < 0n) throw new Error('V2Ray returned a negative traffic counter');
           const delta = raw >= previousRaw ? raw - previousRaw : raw;
-          next[field] = (BigInt(previous?.[field] ?? '0') + delta).toString();
+          next[field] = id === resetId ? '0' : (BigInt(previous?.[field] ?? '0') + delta).toString();
           next[rawField] = raw.toString();
         }
         connections[id] = next;

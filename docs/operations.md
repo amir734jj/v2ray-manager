@@ -175,6 +175,13 @@ The administrator's **Subscriptions** page provides:
 - **Resume:** restore access with the same profiles.
 - **Reset credentials:** invalidate old profiles and the old subscription URL.
   Resetting a paused connection does not resume it.
+- **Reset traffic totals:** after confirmation, zero only this subscription's
+  accumulated core upload/download totals. Current V2Ray counters are checkpointed
+  in the same durable write, so only new traffic is added afterward, including
+  after a gateway restart. Credentials, active tunnels, IP limits, live gateway
+  rates, and other subscriptions are unchanged. If sampling or persistence fails,
+  the action returns HTTP 503 without changing the saved totals; retry after
+  resolving the error.
 - **Replace subscription URL:** issue a new URL without changing tunnel
   credentials; the old URL stops updating, but cached profiles still work.
 - **Delete subscription:** after confirmation, disable access, close its tunnels,
@@ -312,14 +319,20 @@ Admin-only, same-origin POST endpoints:
 - `/api/connections/:id/pause`
 - `/api/connections/:id/resume`
 - `/api/connections/:id/reset`
+- `/api/connections/:id/reset-stats`
 - `/api/connections/:id/subscription`
 - `/api/connections/:id/delete` (returns `{ "deleted": true }` after cleanup)
 - `/api/connections/:id/rename` with JSON body `{ "name": "New subscription name" }`
 - `/api/connections/:id/limits` with JSON body `{ "maxConcurrentIps": 2 }`
   (required integer from `0` to `2147483647`; `0` disables the limit)
 
-Administrator subscription lists and realtime snapshots include `maxConcurrentIps`
-and `activeIps`. Limits persist in PostgreSQL; active slots are held only while
+Administrator subscription lists and realtime snapshots include `maxConcurrentIps`,
+`activeIps`, and `connectedIps` (a sorted, deduplicated list of normalized IP
+addresses with open tunnels). Subscription cards show this live list, or an
+empty-state message when no IPs are connected. It uses the same socket registry
+as limit enforcement, includes all three protocols, and excludes destroyed or
+blocked sockets. These addresses are not persisted as connection history.
+Limits persist in PostgreSQL; active slots are held only while
 gateway sockets are open and are cleared on restart.
 
 The old `/api/users/:id/connection` creation endpoint is removed. Use the
