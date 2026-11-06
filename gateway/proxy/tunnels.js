@@ -3,10 +3,10 @@ import { isIP } from 'node:net';
 import { MAX_USER_AGENT_LENGTH, trackConnection } from '../services/status.js';
 import { normalizeIp } from '../services/blocklist.js';
 import { parseTunnelPath } from './paths.js';
-import { activeTunnelIps } from './sockets.js';
+import { activeTunnelIps, trackTunnelSocket } from './sockets.js';
 
 export function createTunnelHandler({
-  tunnels, routes, blocklist, logger, sockets, wsConnections, proxy, trustCloudflareHeaders = false,
+  tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders = false,
 }) {
   function clientMetadata(request) {
     const { headers } = request;
@@ -61,7 +61,7 @@ export function createTunnelHandler({
         socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
         return;
       }
-      const ips = activeTunnelIps(sockets, tunnel.id);
+      const ips = activeTunnelIps(tunnelSockets, tunnel.id);
       if (!ips.has(metadata.ip) && ips.size >= tunnel.maxConcurrentIps) {
         logger.warn({
           tunnelId: tunnel.id, protocol: tunnel.protocol, maxConcurrentIps: tunnel.maxConcurrentIps,
@@ -84,6 +84,7 @@ export function createTunnelHandler({
       blocked: false,
     };
     sockets.set(socket, connection);
+    trackTunnelSocket(tunnelSockets, socket, connection);
     wsConnections.set(request, connection);
     request.url = `/${tunnel.protocol}`;
     proxy.ws(request, socket, head, { target });

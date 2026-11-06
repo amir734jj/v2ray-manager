@@ -133,7 +133,11 @@ ephemeral loopback-only port; workers proxy to V2Ray and never open database
 connections. The main process owns the single PostgreSQL pool (maximum two
 connections), accounts, blocklist, realtime clients, and history store.
 Blocking an IP or disabling a tunnel closes its main-process sockets across
-all routes. Dashboard tunnel counters and throughput still measure the
+all routes. Active sockets are indexed by subscription, so concurrent-IP checks,
+subscription IP lists, and targeted disconnects inspect only that subscription's
+sockets. Closed sockets are removed from the index, and empty entries are deleted.
+These checks do not add work to forwarded data chunks.
+Dashboard tunnel counters and throughput still measure the
 client-facing sockets; upstream throughput logs are emitted per protocol by
 the workers. Process CPU/memory metrics describe the main process, not the
 combined worker processes. A worker failure shuts down the gateway so the
@@ -467,7 +471,9 @@ from templates if necessary.
   Detailed speed state is allocated only for the existing maximum of 1,000
   displayed connections and updated in place by the shared sampler. There are
   no per-client timers or speed histories; closing a connection releases its
-  detail state. Omitted client sockets retain owner/time and sampling baselines
+  detail state without scanning the subscription's remaining sockets. The final
+  closing socket preserves its timestamp for the subscription's last-active display.
+  Omitted client sockets retain owner/time and sampling baselines
   for per-subscription aggregates, but not individual speed details. Upstream sockets
   keep only aggregate byte-counter baselines.
   The selected group stays expanded across refreshes. `/api/status.json` provides

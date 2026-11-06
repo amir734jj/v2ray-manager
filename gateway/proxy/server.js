@@ -10,6 +10,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
     `/${protocol}`, `http://${upstreamHost}:${parsePort(port, `/${protocol} upstream port`)}`,
   ]));
   const sockets = new Map();
+  const tunnelSockets = new Map();
   const wsConnections = new WeakMap();
   const proxy = httpProxy.createProxyServer({ ws: true, xfwd: true, changeOrigin: false });
   let stopUpstreamTraffic;
@@ -28,8 +29,8 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
   });
 
   return {
-    disconnectTunnel: id => disconnectTunnelSockets(sockets, id),
-    listTunnelIps: id => [...activeTunnelIps(sockets, id)].sort(),
+    disconnectTunnel: id => disconnectTunnelSockets(tunnelSockets, id),
+    listTunnelIps: id => [...activeTunnelIps(tunnelSockets, id)].sort(),
     blocklist: {
       list: blocklist.list,
       async block(value) {
@@ -55,7 +56,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
     attach(server, { tunnels }) {
       if (logTraffic) stopUpstreamTraffic = logUpstreamTraffic(proxy, logger);
       server.on('upgrade', createTunnelHandler({
-        tunnels, routes, blocklist, logger, sockets, wsConnections, proxy, trustCloudflareHeaders,
+        tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders,
       }));
       server.on('connection', socket => {
         sockets.set(socket, null);

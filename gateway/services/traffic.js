@@ -88,7 +88,7 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
     socket.once('close', () => {
       const current = socketTotals(socket, baseline);
       if (baseline.group) {
-        baseline.group.lastConnectedSince = minBy([...baseline.group.sockets.values()], 'connectedAt')?.connectedAt;
+        if (baseline.group.sockets.size === 1) baseline.group.lastConnectedSince = baseline.connectedAt;
         observeGroupTraffic(baseline, current, new Date(wallNow()).toISOString());
         baseline.group.closedUploadBytes += current.uploadBytes;
         baseline.group.closedDownloadBytes += current.downloadBytes;
