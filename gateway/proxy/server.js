@@ -1,4 +1,5 @@
 import httpProxy from 'http-proxy-3';
+import lodash from 'lodash';
 import { parsePort } from '../services/config.js';
 import { createGatewayHandler } from './gateway.js';
 import { createTunnelHandler } from './tunnels.js';
@@ -6,7 +7,7 @@ import { activeTunnelIps, disconnectTunnelSockets } from './sockets.js';
 import { logUpstreamTraffic } from './upstream-traffic.js';
 
 export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, trustCloudflareHeaders = false, logTraffic = true }) {
-  const routes = new Map(Object.entries(ports).map(([protocol, port]) => [
+  const routes = new Map(lodash.map(lodash.toPairs(ports), ([protocol, port]) => [
     `/${protocol}`, `http://${upstreamHost}:${parsePort(port, `/${protocol} upstream port`)}`,
   ]));
   const sockets = new Map();
@@ -30,7 +31,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
 
   return {
     disconnectTunnel: id => disconnectTunnelSockets(tunnelSockets, id),
-    listTunnelIps: id => [...activeTunnelIps(tunnelSockets, id)].sort(),
+    listTunnelIps: id => lodash.sortBy([...activeTunnelIps(tunnelSockets, id)]),
     blocklist: {
       list: blocklist.list,
       async block(value) {

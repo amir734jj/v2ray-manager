@@ -4,6 +4,11 @@
       "listen": "127.0.0.1",
       "port": 10808,
       "protocol": "socks",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"],
+        "metadataOnly": false
+      },
       "settings": { "udp": true }
     }
   ],
@@ -31,9 +36,15 @@
     { "tag": "direct",  "protocol": "freedom" },
     { "tag": "blocked", "protocol": "blackhole" }
   ],
-  "dns": { "servers": ["1.1.1.1", "8.8.8.8"] },
+  "dns": {
+    "tag": "proxy-dns",
+    "servers": ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]
+  },
   "routing": {
     "domainStrategy": "IPIfNonMatch",
-    "rules": [{ "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }]
+    "rules": [
+      { "type": "field", "inboundTag": ["proxy-dns"], "outboundTag": "proxy" },
+      { "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }
+    ]
   }
 }

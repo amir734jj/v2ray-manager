@@ -1,4 +1,5 @@
 import { DataTypes, Op } from 'sequelize';
+import lodash from 'lodash';
 
 export async function createSubscriptionActivity(database) {
   const Activity = database.define('SubscriptionActivity', {
@@ -7,12 +8,15 @@ export async function createSubscriptionActivity(database) {
     connectedSince: { type: DataTypes.STRING(24), allowNull: true },
   }, { tableName: 'gateway_subscription_activity', timestamps: false });
   await Activity.sync();
-  let saved = new Map((await Activity.findAll({ raw: true })).map(row => [row.id, row]));
+  const initialRows = await Activity.findAll({ raw: true });
+  if (!Array.isArray(initialRows)) throw new TypeError('Invalid saved subscription activity rows');
+  let saved = new Map(lodash.map(initialRows, row => [row.id, row]));
 
   return {
     snapshot: id => saved.get(id),
     async record(observations) {
-      const rows = observations.map(({ id, lastTrafficAt, connectedSince }) => {
+      if (!Array.isArray(observations)) throw new TypeError('Subscription activity observations must be an array');
+      const rows = lodash.map(observations, ({ id, lastTrafficAt, connectedSince }) => {
         const previous = saved.get(id);
         for (const value of [lastTrafficAt, connectedSince]) {
           if (value !== null && (typeof value !== 'string' || new Date(value).toISOString() !== value)) {
@@ -32,11 +36,11 @@ export async function createSubscriptionActivity(database) {
           });
         }
         await Activity.destroy({
-          where: rows.length ? { id: { [Op.notIn]: rows.map(row => row.id) } } : {},
+          where: rows.length ? { id: { [Op.notIn]: lodash.map(rows, 'id') } } : {},
           transaction,
         });
       });
-      saved = new Map(rows.map(row => [row.id, row]));
+      saved = new Map(lodash.map(rows, row => [row.id, row]));
     },
     async remove(id) {
       await Activity.destroy({ where: { id } });

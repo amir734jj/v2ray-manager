@@ -405,6 +405,59 @@ It does not change deployed subscriptions. Use Subscriptions to reset those.
 Existing local configs must already use WebSocket; regenerate old configs
 from templates if necessary.
 
+## DNS poisoning protection
+
+The generated server uses encrypted DNS over HTTPS to Cloudflare and Google,
+addressed by IP so resolver hostnames do not need a bootstrap DNS lookup.
+Its `freedom` outbounds use `UseIP` to use V2Ray's built-in DNS rather than
+leaving destination resolution to the system resolver. Server DoH uses
+`https+local://` because it must leave the server directly, not re-enter routing.
+DoH endpoints must be reachable from the server with valid TLS certificates.
+V2Fly can fall back to the system resolver if built-in resolution fails; this
+is not a fail-closed DNS policy. Keep the server's system resolver trusted and
+investigate DNS resolution errors rather than relying on that fallback.
+
+VLESS, VMess, and Trojan inbounds recover visible HTTP Host/TLS SNI hostnames.
+If a client sends a poisoned IP together with a recoverable hostname, V2Ray
+replaces the IP with that hostname and resolves it again on the server.
+This only helps traffic that reaches the tunnel. It cannot recover an absent or
+encrypted hostname (for example ECH), and sniffing can delay server-first
+protocols such as SMTP. It is not a substitute for protecting client DNS.
+
+Generated standalone client JSON configs use DoH through their primary proxy
+outbound. The `proxy-dns` tag and first routing rule keep built-in DNS queries
+inside the tunnel, ahead of direct/private-IP rules. Local SOCKS/HTTP inbounds
+also recover HTTP/TLS hostnames before routing. Applications should pass domains
+to SOCKS (`socks5h`/remote DNS), rather than resolving them with the OS first.
+These JSON configs are separate from managed connection-link subscriptions.
+
+For **v2rayNG connection-link subscriptions**, configure the app separately
+(setting labels vary by release):
+
+1. Use VPN mode and enable its local/core DNS handling so Android DNS requests
+   are intercepted, rather than sent to the ISP outside the tunnel.
+2. Set remote DNS to `https://1.1.1.1/dns-query` (or
+   `https://8.8.8.8/dns-query`), and ensure remote DNS traffic uses the proxy.
+   Do not use `https+local://` on the client: that bypasses the tunnel.
+3. Enable HTTP/TLS sniffing with destination override, not route-only sniffing.
+   For diagnosis, use global/proxy-all routing; direct/local DNS rules must not
+   handle filtered domains.
+4. Restart the VPN and clear stale DNS/browser connections. Inspect the exported
+   runtime config: DNS must not fall back to plaintext/system DNS for filtered
+   names. A list containing only `1.1.1.1`/`8.8.8.8` is unencrypted DNS, not DoH.
+
+Share links cannot configure VPN DNS interception, Android Private DNS,
+browser-specific secure DNS, or arbitrary app routing. The proxy hostname must
+also resolve correctly for the initial tunnel connection; tunneled DNS cannot
+bootstrap a tunnel whose own address is already poisoned. Neither DoH nor
+sniffing guarantees access when the proxy or resolver endpoints are blocked.
+
+To apply server changes, rebuild/redeploy `init` and `v2ray` together with the
+gateway. `init` regenerates the persisted server configuration; rebuilding only
+the gateway leaves the old V2Ray DNS settings in place. Do not delete the config
+volume or reset subscription credentials. Regenerate standalone client JSON
+configs separately; existing managed links remain valid.
+
 ## Status and logs
 
 - **Gateway CPU and memory:** the status dashboard, authenticated
@@ -568,6 +621,9 @@ such as `import { normalizeIp } from '../services'`. Bun resolves these imports
 to the folder's `index.js`; native Node.js ESM does not support this syntax.
 Sibling imports remain direct to avoid barrel-import cycles and loading unrelated
 services into lightweight modules.
+Gateway collection transformations use `import lodash from 'lodash'` and
+qualified calls such as `lodash.map(...)` and `lodash.sortBy(...)`. Keep native Map/Set operations and
+locale-aware comparator sorts when replacing them would change behavior.
 The server and health-check entrypoints remain in `gateway`.
 HTTP routes are grouped by resource in [gateway/controllers](../gateway/controllers).
 Controllers serve the frontend pages and dashboard APIs; services retain

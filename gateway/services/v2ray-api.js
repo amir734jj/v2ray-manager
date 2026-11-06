@@ -1,5 +1,6 @@
 import grpc from '@grpc/grpc-js';
 import protobuf from 'protobufjs';
+import lodash from 'lodash';
 import { fileURLToPath } from 'node:url';
 import { protocols } from '@v2ray-manager/generator';
 
@@ -74,6 +75,7 @@ export function createV2rayApi(address) {
       const before = await readStats('getSysStats', {});
       const beforeEnd = Date.now();
       const response = await readStats('queryStats', { pattern: 'user>>>connection-', reset: false });
+      if (!Array.isArray(response.stat)) throw new TypeError('V2Ray returned invalid traffic counters');
       const afterStart = Date.now();
       const after = await readStats('getSysStats', {});
       const afterEnd = Date.now();
@@ -89,7 +91,7 @@ export function createV2rayApi(address) {
         sampledAt: new Date(afterEnd).toISOString(),
         uptimeSeconds: after.uptime,
         bootWindow,
-        counters: response.stat.map(counter => ({ name: counter.name, value: counter.value.toString() })),
+        counters: lodash.map(response.stat, counter => ({ name: counter.name, value: counter.value.toString() })),
       };
     },
     close() {

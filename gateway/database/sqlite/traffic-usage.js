@@ -1,3 +1,6 @@
+import { DataTypes, Transaction } from 'sequelize';
+import lodash from 'lodash';
+
 const counterFields = [['uploadBytes', 'rawUploadBytes'], ['downloadBytes', 'rawDownloadBytes']];
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const bytePattern = /^(0|[1-9][0-9]*)$/;
@@ -15,7 +18,7 @@ function validateState(state) {
     throw new Error('Invalid persisted subscription traffic state');
   }
   validateWindow(state.bootWindow);
-  for (const [id, counters] of Object.entries(state.connections)) {
+  for (const [id, counters] of lodash.toPairs(state.connections)) {
     if (!uuidPattern.test(id) || !counters) throw new Error('Invalid persisted subscription traffic entry');
     for (const [field, rawField] of counterFields) {
       for (const value of [counters[field], counters[rawField]]) {
@@ -45,8 +48,8 @@ export async function createTrafficUsage(database) {
     return {
       sampledAt: state?.sampledAt ?? null,
       uptimeSeconds: state?.uptimeSeconds ?? null,
-      counters: new Map(Object.entries(state?.connections ?? {}).map(([id, counters]) => [
-        id, Object.fromEntries(counterFields.map(([field]) => [field, counters[field]])),
+      counters: new Map(lodash.map(lodash.toPairs(state?.connections ?? {}), ([id, counters]) => [
+        id, lodash.fromPairs(lodash.map(counterFields, ([field]) => [field, counters[field]])),
       ])),
     };
   }
@@ -112,4 +115,3 @@ export async function createTrafficUsage(database) {
     },
   };
 }
-import { DataTypes, Transaction } from 'sequelize';

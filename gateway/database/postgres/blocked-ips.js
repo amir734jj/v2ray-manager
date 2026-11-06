@@ -1,12 +1,13 @@
 import { col, DataTypes, fn, Op, Transaction, where } from 'sequelize';
 import createError from 'http-errors';
+import lodash from 'lodash';
 import { normalizeIp } from '../../services';
 
 export const MAX_BLOCKED_IPS = 1000;
 
 function decodeBlockedIps(rows) {
   if (rows.length > MAX_BLOCKED_IPS) throw new RangeError(`Blocklist is limited to ${MAX_BLOCKED_IPS} IPs`);
-  const addresses = new Set(rows.map(row => normalizeIp(row.ip)));
+  const addresses = new Set(lodash.map(rows, row => normalizeIp(row.ip)));
   if (addresses.size !== rows.length) throw new Error('Database contains equivalent duplicate IP addresses');
   return addresses;
 }
@@ -65,7 +66,8 @@ export async function createBlocklist(database) {
         const name = 'gateway_ip_blocklist_host_check';
         const queryOptions = { transaction: options.transaction, logging: options.logging };
         const constraints = await queryInterface.showConstraint(table, name, queryOptions);
-        if (constraints.some(constraint => constraint.constraintName === name)) return;
+        if (!Array.isArray(constraints)) throw new TypeError('Invalid blocklist constraints');
+        if (lodash.some(constraints, constraint => constraint.constraintName === name)) return;
         await queryInterface.addConstraint(table, {
           ...queryOptions,
           fields: ['ip'],
@@ -85,7 +87,7 @@ export async function createBlocklist(database) {
   const state = { database, BlockedIp, blocked: await loadBlockedIps(BlockedIp), busy: false };
 
   return {
-    list: () => [...state.blocked].sort(),
+    list: () => lodash.sortBy([...state.blocked]),
     has: value => state.blocked.has(normalizeIp(value)),
     block: value => changeBlockedIp(state, value, true),
     unblock: value => changeBlockedIp(state, value, false),

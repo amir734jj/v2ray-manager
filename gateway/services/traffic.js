@@ -1,4 +1,4 @@
-import minBy from 'lodash/minBy.js';
+import lodash from 'lodash';
 
 export function createTrafficMeter({ now = () => performance.now(), wallNow = () => Date.now(), upstream = false } = {}) {
   const sockets = new Map();
@@ -150,7 +150,7 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
 
   function groupSnapshot(id) {
     const group = groups.get(id);
-    const connectedSince = minBy([...(group?.sockets.values() ?? [])], 'connectedAt')?.connectedAt ?? null;
+    const connectedSince = lodash.minBy([...(group?.sockets.values() ?? [])], 'connectedAt')?.connectedAt ?? null;
     return {
       openTunnels: group?.sockets.size ?? 0,
       connectedSince,

@@ -2,12 +2,23 @@
   "log": {
     "loglevel": "warning"
   },
+  "dns": {
+    "servers": [
+      "https+local://1.1.1.1/dns-query",
+      "https+local://8.8.8.8/dns-query"
+    ]
+  },
   "inbounds": [
     {
       "tag": "vless-53217",
       "listen": "0.0.0.0",
       "port": 53217,
       "protocol": "vless",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"],
+        "metadataOnly": false
+      },
       "settings": {
         "clients": [
           {
@@ -27,6 +38,11 @@
       "listen": "0.0.0.0",
       "port": 53218,
       "protocol": "vmess",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"],
+        "metadataOnly": false
+      },
       "settings": {
         "clients": [
           {
@@ -47,6 +63,11 @@
       "listen": "0.0.0.0",
       "port": 53219,
       "protocol": "trojan",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"],
+        "metadataOnly": false
+      },
       "settings": {
         "clients": [
           {
@@ -64,7 +85,8 @@
   "outbounds": [
     {
       "tag": "direct",
-      "protocol": "freedom"
+      "protocol": "freedom",
+      "settings": { "domainStrategy": "UseIP" }
     },
     {
       "tag": "blocked",

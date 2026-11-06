@@ -1,8 +1,7 @@
 import { join } from 'node:path';
 import { DataTypes, Op, Sequelize } from 'sequelize';
 import createError from 'http-errors';
-import clamp from 'lodash/clamp.js';
-import mapValues from 'lodash/mapValues.js';
+import lodash from 'lodash';
 import { createTrafficUsage } from './traffic-usage.js';
 import { createSubscriptionActivity } from './subscription-activity.js';
 
@@ -25,7 +24,7 @@ const OPTIONAL_METRICS = [
 const METRICS = [...REQUIRED_METRICS, ...OPTIONAL_METRICS];
 
 function createSeries() {
-  return Object.fromEntries(METRICS.map(metric => [metric, { min: null, max: null, count: 0, buckets: new Map() }]));
+  return lodash.fromPairs(lodash.map(METRICS, metric => [metric, { min: null, max: null, count: 0, buckets: new Map() }]));
 }
 
 function validateSample(sample) {
@@ -44,7 +43,7 @@ function validateSample(sample) {
 
 function addToSeries(series, sample, start, duration) {
   validateSample(sample);
-  const bucketIndex = clamp(Math.floor((sample.timestamp - start) / duration * BUCKETS), 0, BUCKETS - 1);
+  const bucketIndex = lodash.clamp(Math.floor((sample.timestamp - start) / duration * BUCKETS), 0, BUCKETS - 1);
   for (const metric of METRICS) {
     const value = sample[metric];
     if (value === undefined) continue;
@@ -63,10 +62,10 @@ function addToSeries(series, sample, start, duration) {
 }
 
 function finishSeries(series) {
-  return mapValues(series, ({ min, max, count, buckets }) => {
-    const points = [...buckets.values()].flatMap(bucket => {
+  return lodash.mapValues(series, ({ min, max, count, buckets }) => {
+    const points = lodash.flatMap([...buckets.values()], bucket => {
       if (bucket.min.timestamp === bucket.max.timestamp) return [bucket.min];
-      return [bucket.min, bucket.max].sort((a, b) => a.timestamp - b.timestamp);
+      return lodash.sortBy([bucket.min, bucket.max], 'timestamp');
     });
     return { min, max, count, points };
   });

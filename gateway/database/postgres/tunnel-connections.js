@@ -1,8 +1,9 @@
 import { DataTypes } from 'sequelize';
 import createError from 'http-errors';
+import lodash from 'lodash';
 
 const publicFields = ['id', 'name', 'maxConcurrentIps', 'enabled', 'syncStatus', 'syncError', 'createdAt'];
-export const publicConnection = row => Object.fromEntries(publicFields.map(field => [field, row[field]]));
+export const publicConnection = row => lodash.zipObject(publicFields, lodash.map(publicFields, field => row[field]));
 
 export async function initializeTunnelConnections(database) {
   const Connection = database.define('TunnelConnection', {

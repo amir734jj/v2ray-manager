@@ -1,7 +1,8 @@
+import lodash from 'lodash';
 import { createTrafficMeter } from '../services/traffic.js';
 
 export function logUpstreamTraffic(proxy, logger, paths) {
-  const meters = new Map(Array.from(paths, path => [path, createTrafficMeter({ upstream: true })]));
+  const meters = new Map(lodash.map([...paths], path => [path, createTrafficMeter({ upstream: true })]));
   const onRequest = (request, incomingRequest) => {
     const traffic = meters.get(incomingRequest.url);
     if (!traffic) throw new Error('Unknown upstream traffic route');

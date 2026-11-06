@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import createError from 'http-errors';
-import shuffle from 'lodash/shuffle.js';
+import lodash from 'lodash';
 import { createConnectionUrls, protocols, validateHost } from '@v2ray-manager/generator';
 import { publicConnection } from '../database/postgres/tunnel-connections.js';
 import { parseTunnelPath } from '../proxy/paths.js';
@@ -24,14 +24,14 @@ function validateIpLimit(value) {
 
 export function subscriptionContent(connection, host) {
   const config = {
-    inbounds: protocols.map(protocol => ({
+    inbounds: lodash.map(protocols, protocol => ({
       protocol,
       tag: `${protocol}-${connection.id.slice(0, 8)}`,
       settings: { clients: [protocol === 'trojan' ? { password: connection.credential } : { id: connection.credential, alterId: 0 }] },
       streamSettings: { network: 'ws', wsSettings: { path: `/${protocol}/${connection.credential}` } },
     })),
   };
-  const links = shuffle(Object.values(createConnectionUrls(config, host)));
+  const links = lodash.sortBy(lodash.values(createConnectionUrls(config, host)));
   return Buffer.from(links.join('\n') + '\n').toString('base64');
 }
 
@@ -131,7 +131,8 @@ export function createConnectionService({ connections, api, host, disconnect, li
 
   async function reconcile() {
     const rows = await connections.all();
-    const desired = new Map(rows.map(row => [row.id, row]));
+    if (!Array.isArray(rows)) throw new TypeError('Invalid subscription reconciliation rows');
+    const desired = new Map(lodash.map(rows, row => [row.id, row]));
     for (const [id, credential] of [...authorizationCredentials]) {
       const row = desired.get(id);
       if (!row || row.credential !== credential || !row.enabled || row.syncStatus !== 'applied') {
@@ -172,6 +173,12 @@ export function createConnectionService({ connections, api, host, disconnect, li
     }
   }
 
+  async function listRows() {
+    const rows = await connections.list();
+    if (!Array.isArray(rows)) throw new TypeError('Invalid subscription list rows');
+    return rows;
+  }
+
   async function collectStats(resetId) {
     try {
       const sample = await api.stats();
@@ -185,8 +192,8 @@ export function createConnectionService({ connections, api, host, disconnect, li
         current[match[2] === 'uplink' ? 'uploadBytes' : 'downloadBytes'] = value.toString();
         counters.set(match[1], current);
       }
-      const rows = await connections.list();
-      const saved = await trafficUsage.record(sample, counters, rows.map(row => row.id), resetId);
+      const rows = await listRows();
+      const saved = await trafficUsage.record(sample, counters, lodash.map(rows, 'id'), resetId);
       coreCounters = saved.counters;
       coreStats = { status: 'ready', sampledAt: sample.sampledAt, uptimeSeconds: sample.uptimeSeconds, error: null };
     } catch (error) {
@@ -205,8 +212,8 @@ export function createConnectionService({ connections, api, host, disconnect, li
 
   async function collectActivity() {
     try {
-      const rows = await connections.list();
-      await subscriptionActivity.record(rows.map(row => {
+      const rows = await listRows();
+      await subscriptionActivity.record(lodash.map(rows, row => {
         const activity = activitySnapshot(row.id);
         return {
           id: row.id, lastTrafficAt: activity.lastTrafficAt,
@@ -256,9 +263,9 @@ export function createConnectionService({ connections, api, host, disconnect, li
     },
     async list() {
       return guarded(async () => {
-        const rows = await connections.list();
+        const rows = await listRows();
         return {
-          connections: rows.map(row => {
+          connections: lodash.map(rows, row => {
             const connectedIps = listIps(row.id);
             return {
               ...publicConnection(row),
@@ -269,7 +276,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
               coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
             };
           }),
-          error: [reconciliationError, activityError].filter(Boolean).join(' ') || null,
+          error: lodash.compact([reconciliationError, activityError]).join(' ') || null,
           coreStats: { ...coreStats },
         };
       });

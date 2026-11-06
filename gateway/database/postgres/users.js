@@ -1,8 +1,9 @@
 import { DataTypes, Transaction } from 'sequelize';
 import createError from 'http-errors';
+import lodash from 'lodash';
 
 const publicFields = ['id', 'username', 'active', 'admin', 'createdAt'];
-export const publicUser = user => Object.fromEntries(publicFields.map(field => [field, user[field]]));
+export const publicUser = user => lodash.zipObject(publicFields, lodash.map(publicFields, field => user[field]));
 
 export async function initializeUsers(database) {
   const User = database.define('GatewayUser', {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import lodash from 'lodash';
 import { createTrafficMeter } from './traffic.js';
 import { createResourceMeter } from './resources.js';
 import { listAccounts } from './accounts.js';
@@ -65,7 +66,7 @@ setInterval(() => {
   gatewayEvents.emit('status');
   gatewayEvents.emit('heartbeat');
 }, 5000).unref();
-const counters = ['vless', 'vmess', 'trojan'].map(protocol => ({
+const counters = lodash.map(['vless', 'vmess', 'trojan'], protocol => ({
   transport: 'ws', protocol, active: 0, total: 0, errors: 0,
 }));
 const countries = new Map();
@@ -75,19 +76,17 @@ export const MAX_CLIENT_DETAILS = 1000;
 export const MAX_USER_AGENT_LENGTH = 256;
 
 function connectionTotals() {
-  const totals = { active: 0, total: 0, errors: 0 };
-  for (const row of counters) {
-    totals.active += row.active;
-    totals.total += row.total;
-    totals.errors += row.errors;
-  }
-  return totals;
+  return {
+    active: lodash.sumBy(counters, 'active'),
+    total: lodash.sumBy(counters, 'total'),
+    errors: lodash.sumBy(counters, 'errors'),
+  };
 }
 
 export function trackConnection(transport, protocol, connection, {
   country, ip, userAgent, tunnelId, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
 } = {}) {
-  const counter = counters.find(item => item.transport === transport && item.protocol === protocol);
+  const counter = lodash.find(counters, item => item.transport === transport && item.protocol === protocol);
   const code = typeof country === 'string' && /^(?:[A-Z]{2}|T1)$/.test(country) && country !== 'XX'
     ? country : 'unknown';
   if (!countries.has(code)) {
@@ -137,7 +136,7 @@ export function trackConnection(transport, protocol, connection, {
 
 export function snapshot(ipDetails) {
   const totals = connectionTotals();
-  const activeClients = [...clients].map(([client, clientTraffic]) => ({
+  const activeClients = lodash.map([...clients], ([client, clientTraffic]) => ({
     ...client,
     traffic: clientTraffic.snapshot(),
     elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
@@ -175,11 +174,11 @@ export function snapshot(ipDetails) {
       shown: activeClients.length,
       omitted: totals.active - activeClients.length,
     },
-    clientGroups: [...groups.values()].map(group => ({
+    clientGroups: lodash.map([...groups.values()], group => ({
       ip: group.ip,
       active: group.active,
       countries: [...group.countries.values()].sort((a, b) => a.code.localeCompare(b.code)),
-      protocols: [...group.protocols].sort(),
+      protocols: lodash.sortBy([...group.protocols]),
       traffic: group.traffic,
       ipDetails: ipDetails ? ipDetails.lookup(group.ip) : { status: 'unavailable' },
     })).sort((a, b) => a.ip.localeCompare(b.ip)),
@@ -200,8 +199,9 @@ export function tunnelActivitySnapshot(id) {
 
 export async function connectionsSnapshot(tunnels) {
   const state = tunnels ? await tunnels.list() : { connections: [], error: 'Tunnel management is unavailable' };
+  if (!Array.isArray(state.connections)) throw new TypeError('Invalid subscription snapshot');
   return {
-    connections: state.connections.map(({ savedActivity, ...connection }) => {
+    connections: lodash.map(state.connections, ({ savedActivity, ...connection }) => {
       const gateway = traffic.groupSnapshot(connection.id);
       return {
         ...connection,
