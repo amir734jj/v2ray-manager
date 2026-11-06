@@ -265,8 +265,9 @@ use gateway controls when immediate revocation is required.
 
 ### Per-subscription activity and core accounting
 
-The administrator's subscription cards and `/api/connections`/Socket.IO `connections` snapshots expose
-two separate measurements:
+The administrator-only `/api/connections`/Socket.IO `connections` snapshots expose
+two separate measurements. Subscription cards retain management controls, URLs,
+and status, without traffic/IP statistics or explanatory panels:
 
 - `connections[].gateway.openTunnels`: every currently open gateway socket for
   that subscription, including sockets beyond the Status page's 1,000-detail limit.
@@ -276,9 +277,8 @@ two separate measurements:
   connection time, or null when no sockets are open. Closing that oldest socket
   advances this timestamp to the next oldest.
 - `connections[].gateway.lastConnectedSince`: the live connected-since value,
-  or the saved start time of the previous connection when offline. The UI labels
-  the offline value **Previous connection since**, rather than implying that
-  pre-restart sockets are still connected.
+  or the saved start time of the previous connection when offline. This saved
+  value does not imply that pre-restart sockets are still connected.
 - `connections[].gateway.traffic`: socket upload/download bytes and rates from
   the shared five-second sampler. Upload is client to gateway; download is
   gateway to client. Rates include recently closed sockets in the sampling
@@ -286,11 +286,11 @@ two separate measurements:
 - `connections[].gateway.lastTrafficAt`: when a sample or socket close last
   observed a byte-counter change. It is an observation timestamp, not an exact
   packet timestamp or proof of authenticated application traffic. It remains
-  visible after all sockets close and is restored from SQLite after a restart.
+  available in snapshots after all sockets close and is restored from SQLite after a restart.
 - `connections[].coreTraffic`: authenticated V2Ray `uploadBytes`/`downloadBytes`
   totals, aggregated across VLESS, VMess, and Trojan using the connection's
   stable internal subscription identifier. Byte totals are decimal strings in the API
-  to preserve 64-bit precision; the UI formats them in binary units.
+  to preserve 64-bit precision.
 
 The `gateway_subscription_activity` SQLite table stores each subscription's
 `lastTrafficAt` and last observed `connectedSince`. The existing five-second
@@ -365,10 +365,10 @@ Admin-only, same-origin POST endpoints:
 - `/api/connections/:id/limits` with JSON body `{ "maxConcurrentIps": 2 }`
   (required integer from `0` to `2147483647`; `0` disables the limit)
 
-Administrator subscription lists and realtime snapshots include `maxConcurrentIps`,
+Administrator API subscription lists and realtime snapshots include `maxConcurrentIps`,
 `activeIps`, and `connectedIps` (a sorted, deduplicated list of normalized IP
-addresses with open tunnels). Subscription cards show this live list, or an
-empty-state message when no IPs are connected. It uses the same socket registry
+addresses with open tunnels). These details are not displayed on subscription cards.
+The API uses the same socket registry
 as limit enforcement, includes all three protocols, and excludes destroyed or
 blocked sockets. These addresses are not persisted as connection history.
 Limits persist in PostgreSQL; active slots are held only while

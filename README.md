@@ -76,10 +76,12 @@ The gateway expects the current database schema. Legacy subscription schemas
 are no longer upgraded automatically; existing deployments must already have
 the schema changes applied.
 
-The administrator's Subscriptions page also shows each subscription's open gateway tunnels,
+Administrator-only API and realtime snapshots retain each subscription's open gateway tunnels,
 oldest open tunnel time, upload/download speed, and last observed socket traffic.
+The Subscriptions page shows management controls without traffic/IP statistics
+or explanatory panels.
 These are socket measurements, not device counts or proof of authentication.
-Separate V2Ray totals show accumulated traffic attributed to authenticated credentials,
+Separate V2Ray totals retain accumulated traffic attributed to authenticated credentials,
 persisted with Sequelize in embedded SQLite across gateway and V2Ray restarts.
 Both update about every five seconds; collection or storage failures mark core
 totals stale instead of reporting zero. Preserve the `gateway-metrics` volume.
