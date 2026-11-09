@@ -7,14 +7,13 @@ import {
 import { createGatewayProxy } from './proxy';
 import { createGatewayApp } from './app.js';
 import { createDatabase, createResourceHistory } from './database';
-import { parseTrustedProxies } from './services/client-ip.js';
+import { discoverTrustedProxies } from './services/client-ip.js';
 
 const logger = createGatewayLogger();
 const ipDetails = createIpDetails({ logger, onChange: () => gatewayEvents.emit('status') });
 
 const listenPort = parsePort(process.env.GATEWAY_PORT ?? '53217', 'GATEWAY_PORT');
 const upstreamHost = process.env.V2RAY_UPSTREAM_HOST ?? 'v2ray';
-const trustedProxies = parseTrustedProxies(process.env.GATEWAY_TRUSTED_PROXIES);
 const trustCloudflareHeaders = process.env.GATEWAY_TRUST_CLOUDFLARE_HEADERS ?? 'auto';
 if (!['auto', 'true', 'false'].includes(trustCloudflareHeaders)) {
   throw new Error('GATEWAY_TRUST_CLOUDFLARE_HEADERS must be auto, true or false');
@@ -34,9 +33,11 @@ try {
 startResourceRecording(resourceHistory, logger);
 let shuttingDown = false;
 let gatewayProxy;
+let proxyDiscovery;
 let tunnels;
 let server;
 try {
+  proxyDiscovery = await discoverTrustedProxies(logger);
   gatewayProxy = createGatewayProxy({
     upstreamHost,
     ports: {
@@ -47,7 +48,7 @@ try {
     blocklist: storedBlocklist,
     logger,
     trustCloudflareHeaders: trustCloudflareHeaders === 'auto' ? 'auto' : trustCloudflareHeaders === 'true',
-    trustedProxies,
+    trustProxy: proxyDiscovery.trustProxy,
     logTraffic: true,
   });
   tunnels = createConnectionService({
@@ -99,6 +100,7 @@ server.listen(listenPort, '0.0.0.0', () => {
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  proxyDiscovery?.close();
   gatewayProxy?.stop();
   if (server) {
     await new Promise(resolve => server.close(error => {

@@ -55,7 +55,6 @@ function OnlineSubscriptions({ resource }) {
       {online.map(connection => <tr key={connection.id}>
         <th scope="row">
           <div class="text-break">{connection.name}</div>
-          <code class="small text-body-secondary">{connection.id.slice(0, 8)}</code>
         </th>
         <td><span class={`badge ${error ? 'text-bg-secondary' : 'text-bg-success'}`}>
           {error ? 'Unknown (stale)' : 'Online'}
@@ -80,7 +79,7 @@ function SubscriptionNames({ connections, resource }) {
   const stale = resource.error || resource.data.tunnelError;
   return <>
     {connections.length ? connections.map(connection => <div key={connection.id} class="text-break">
-      {connection.name} <code class="small text-body-secondary">({connection.id.slice(0, 8)})</code>
+      {connection.name}
     </div>) : <span class="text-body-secondary">{stale ? 'Unavailable' : 'Unknown'}</span>}
     {stale && connections.length > 0 && <div class="small text-body-secondary">Stale subscription details</div>}
   </>;

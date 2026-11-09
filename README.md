@@ -112,12 +112,14 @@ configured retention window by domain or subscription name. It shows the subscri
 observation time, with 50 rows per page and no 50-record history cap. Search and
 pagination run on the server; use **Refresh** to return to the newest results.
 
-For connections through Coolify/Traefik without Cloudflare, set
-`GATEWAY_TRUSTED_PROXIES` to Traefik's IP on the gateway's Docker network
-(comma-separated IPs/CIDRs). The gateway then reads `X-Forwarded-For` from
-that proxy, stopping at the first untrusted address from the right. Leave it
-empty for direct socket connections. Never trust all addresses or an entire
-shared network unnecessarily. Keep the gateway port private and have Traefik
+The gateway automatically discovers Coolify's `coolify-proxy` container through
+Docker DNS at startup and refreshes its addresses every 30 seconds. No proxy-IP
+configuration or hardcoded container address is needed. Only that service's
+private IPv4/IPv6 addresses are trusted, not every private IP or subnet.
+The gateway reads `X-Forwarded-For` from the discovered proxy, stopping at the
+first untrusted address from the right. Discovery failures are logged and clear
+proxy trust until DNS recovers; direct clients still use their socket IP.
+Keep the gateway port private and have Traefik
 sanitize incoming forwarded headers. Cloudflare detection is automatic by default
 (`GATEWAY_TRUST_CLOUDFLARE_HEADERS=auto`): use `CF-Connecting-IP` and `CF-IPCountry`
 when the socket peer, or source resolved through trusted proxies, belongs to
@@ -150,9 +152,8 @@ V2Ray counters. PostgreSQL accounts and subscriptions are unchanged.
 
 The administrator can block IPs from the dashboard.
 `GATEWAY_TRUST_CLOUDFLARE_HEADERS=false` disables Cloudflare metadata.
-The explicit `true` setting preserves legacy Cloudflare-only trust when no
-`GATEWAY_TRUSTED_PROXIES` are configured; use it only with origin access restricted
-to Cloudflare and trusted proxies, or client IP headers can be forged.
+The `true` setting also requires a verified Cloudflare source; merely sending
+Cloudflare headers cannot override a direct client's IP.
 
 Gateway logs are readable plain text. Every five seconds, a connection snapshot
 lists connected subscriptions and client IPs, protocols, open tunnels, and

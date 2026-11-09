@@ -5,12 +5,12 @@ import { parseTunnelPath } from './paths.js';
 import { activeTunnelIps, trackTunnelSocket } from './sockets.js';
 
 export function createTunnelHandler({
-  tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders = 'auto', trustedProxies = [],
+  tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders = 'auto', trustProxy,
 }) {
   function clientMetadata(request) {
     const { headers } = request;
     return {
-      ...clientAddress(request, { trustedProxies, trustCloudflareHeaders, logger }),
+      ...clientAddress(request, { trustProxy, trustCloudflareHeaders, logger }),
       userAgent: headers['user-agent']?.trim().slice(0, MAX_USER_AGENT_LENGTH) || 'Unknown',
     };
   }

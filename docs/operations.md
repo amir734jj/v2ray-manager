@@ -200,10 +200,18 @@ The administrator's **Subscriptions** page provides:
   until the active count drops below the new limit. Pausing or deleting releases
   the subscription's slots. Other subscriptions have independent limits.
 
-For Coolify/Traefik connections without Cloudflare, configure
-`GATEWAY_TRUSTED_PROXIES` with Traefik's gateway-network IP (or a narrowly scoped
-CIDR). It accepts a comma-separated list; empty means no forwarded-header trust.
-Malformed entries stop startup. The gateway walks `X-Forwarded-For` from right
+The gateway automatically resolves Coolify's `coolify-proxy` service through
+Docker DNS at startup and every 30 seconds after each lookup completes.
+Only private IPv4 addresses and IPv6 unique-local addresses returned for that
+service are trusted, as individual hosts, never an entire private subnet.
+No proxy-address environment variable or hardcoded container IP is used.
+The proxy must share a Docker network with the gateway and be resolvable by that
+service name; the Coolify-managed proxy already joins the application network.
+Discovery changes and failures are logged. DNS failures clear trust until
+resolution recovers, and shutdown stops the refresh timer.
+Without that service (for example a direct, non-Coolify deployment), forwarded
+headers remain untrusted and the socket peer IP is used.
+The gateway uses `proxy-addr` to resolve `X-Forwarded-For` from right
 to left through trusted proxies, stopping at the first untrusted address. Invalid
 forwarded addresses are logged and ignored. Requests from other peers cannot
 override their socket IP. Use the same resolved address for status, connected IPs,
@@ -212,16 +220,16 @@ captured at connection time; reconnect them after changing this setting.
 
 Keep the gateway port private. Configure Traefik to discard untrusted incoming
 forwarded headers; do not enable `forwardedHeaders.insecure`. Trust only actual
-proxy addresses, not all private networks. Docker-assigned proxy IPs can change
-after network recreation, so recheck the configured address on redeploy.
+proxy addresses, not all private networks. Discovery follows Docker-assigned
+proxy address changes; existing tunnels retain their connection-time metadata.
 `GATEWAY_TRUST_CLOUDFLARE_HEADERS` defaults to `auto`: `CF-Connecting-IP` and
 `CF-IPCountry` are accepted only if the socket peer, or source resolved through
 trusted proxies, is in Cloudflare's published IPv4/IPv6 ranges. Otherwise the
 forwarded or socket IP is used, even if Cloudflare headers are present.
 Keep those ranges in `gateway/services/client-ip.js` current.
-`false` disables Cloudflare metadata. `true` retains legacy Cloudflare-only
-trust when no trusted proxies are configured, and in that case still requires
-restricting origin access to Cloudflare and trusted proxies. Existing deployments
+`false` disables Cloudflare metadata. `true` also requires a verified Cloudflare
+source, including after a proxy DNS failure; header presence alone never
+establishes trust. Existing deployments
 with an explicit `false` must switch to `auto` to enable automatic detection.
 
 IP limits are not physical-device limits: devices behind NAT share a slot,
@@ -627,7 +635,7 @@ configs separately; existing managed links remain valid.
   snapshots. Status includes active tunnels, attempts, and errors by protocol
   and country, plus aggregate proxy upload and download throughput.
   Administrators see an **Online subscriptions** table near the top of the page,
-  showing subscription names and short IDs, connected IPs, open tunnels,
+  showing subscription names, connected IPs, open tunnels,
   upload/download rates, and connection start times. It uses the existing
   administrator-only `connections` Socket.IO resource for subscription metadata.
   The **Active clients by IP** table lists every subscription currently using
@@ -718,9 +726,10 @@ configs separately; existing managed links remain valid.
   names and client IPs, but never credentials, subscription URLs, or destinations.
   Every **five seconds**, one `Gateway connection snapshot` reports the number
   of connected subscriptions, distinct known client IPs, and open tunnels.
+  Tables are rendered by `cli-table3`, with terminal colors disabled.
   A table groups open tunnels by subscription and client IP, showing the
-  subscription name captured when the connection opened, a short subscription
-  ID, protocols, tunnel count, and upload/download in decimal Mbps.
+  subscription name captured when the connection opened, protocols, tunnel count,
+  and upload/download in decimal Mbps. Internal subscription IDs are not displayed.
   Renamed subscriptions use their new name on new connections.
   A second table reports protocol totals (`vless`, `vmess`, `trojan`).
   With no open tunnels, it explicitly says `No clients connected.`
@@ -811,8 +820,8 @@ For country counters and real client IP logs, enable Cloudflare IP Geolocation
 and preserve `CF-Connecting-IP` / `CF-IPCountry`. The default
 `GATEWAY_TRUST_CLOUDFLARE_HEADERS=auto` detects Cloudflare from its source IP ranges,
 not merely the presence of a header.
-For mixed Cloudflare and direct traffic through Traefik, configure
-`GATEWAY_TRUSTED_PROXIES` as described under concurrent-IP limits. Direct traffic
+For mixed Cloudflare and direct traffic through Traefik, automatic Docker DNS
+discovery establishes proxy trust as described under concurrent-IP limits. Direct traffic
 then uses the forwarded client IP without trusting spoofed Cloudflare metadata.
 Without verified Cloudflare metadata, country is Unknown and logs use the
 trusted forwarded client IP or socket peer IP. Restrict access

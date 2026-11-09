@@ -1,4 +1,5 @@
 import lodash from 'lodash';
+import Table from 'cli-table3';
 import { createTrafficMeter } from '../services/traffic.js';
 import { formatLogText } from '../services/logger.js';
 
@@ -7,9 +8,9 @@ function formatRate(bytesPerSecond) {
 }
 
 function table(headings, rows) {
-  const widths = headings.map((heading, index) => Math.max(heading.length, ...rows.map(row => row[index].length)));
-  return [headings, ...rows].map(row => row.map((cell, index) =>
-    index === row.length - 1 ? cell : cell.padEnd(widths[index])).join('  ')).join('\n');
+  const output = new Table({ head: headings, style: { head: [], border: [] } });
+  output.push(...rows);
+  return output.toString();
 }
 
 export function logUpstreamTraffic(proxy, logger, paths, { tunnelSockets, wsConnections }) {
@@ -42,7 +43,7 @@ export function logUpstreamTraffic(proxy, logger, paths, { tunnelSockets, wsConn
         const key = `${id}:${ip}`;
         if (!groups.has(key)) {
           groups.set(key, {
-            subscription: subscriptionName ? `${formatLogText(subscriptionName)} (${id.slice(0, 8)})` : id,
+            subscription: subscriptionName ? formatLogText(subscriptionName) : 'Unnamed subscription',
             ip: ip ?? 'unknown', protocols: new Set(), tunnels: 0, sampled: 0, upload: 0, download: 0,
           });
         }
