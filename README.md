@@ -1,13 +1,13 @@
 # V2Ray Manager
 
-Manage VLESS, VMess, and Trojan connections over WebSocket behind
+Manage VLESS, VMess, Trojan, and Shadowsocks connections over WebSocket behind
 Cloudflare and Coolify.
 
 ```text
 Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 ```
 
-The Bun gateway handles VLESS, VMess, and Trojan in one process and forwards
+The Bun gateway handles VLESS, VMess, Trojan, and Shadowsocks in one process and forwards
 WebSockets directly to V2Ray. It owns authentication, blocking, dashboard state,
 and a single PostgreSQL pool capped at two connections.
 
@@ -49,11 +49,20 @@ connection-link subscriptions cannot set these app preferences. See
 Administrators can create as many named subscriptions as needed, without
 creating or activating dashboard accounts. **Users** manages dashboard access
 only. Each subscription has its own credentials, URL, controls, and traffic
-statistics across VLESS, VMess, and Trojan.
+statistics across VLESS, VMess, Trojan, and Shadowsocks.
 
-Each subscription response sorts links alphabetically by protocol (Trojan, VLESS,
-VMess) without changing credentials or connection settings. VMess keeps its original embedded `vmess-ws` name and
+Each subscription response sorts links alphabetically by URL scheme (Shadowsocks,
+Trojan, VLESS, VMess) without changing existing credentials or connection settings.
+VMess keeps its original embedded `vmess-ws` name and
 has no URL fragment.
+
+After deploying the update, refresh existing subscription URLs to receive the
+additional Shadowsocks profile; existing VLESS, VMess, and Trojan profiles remain
+unchanged. Shadowsocks uses `aes-256-gcm` over WebSocket + TLS on the same hostname
+and port 443, with a SIP002 `ss://` link specifying `v2ray-plugin`, TLS, and
+`mux=0`. Clients must support that plugin/transport. This is TCP over WebSocket,
+not a native Shadowsocks UDP listener. Each subscription has its own private
+Shadowsocks inbound and password; no new public port or database migration is needed.
 
 Administrators can **Pause**, **Resume**, **Reset credentials**, **Delete subscription**, or
 **Replace subscription URL** from **Subscriptions**. Pausing closes only that subscription's
@@ -67,7 +76,7 @@ Deleting a subscription requires confirmation, closes its tunnels, and permanent
 removes its credentials and URL without affecting other subscriptions.
 Set a **Concurrent IP limit** when creating a subscription or edit it later.
 `0` means unlimited (the default for new and existing subscriptions). The limit
-counts active public IPs across all three protocols, not physical devices.
+counts active public IPs across all four protocols, not physical devices.
 New IPs are rejected at the limit; existing IPs can keep opening tunnels.
 Lowering the limit does not disconnect existing IPs. Devices sharing a public
 IP count together, and one device can use more than one IP.

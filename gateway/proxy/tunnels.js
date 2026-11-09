@@ -3,6 +3,7 @@ import { MAX_USER_AGENT_LENGTH, trackConnection } from '../services/status.js';
 import { clientAddress } from '../services/client-ip.js';
 import { parseTunnelPath } from './paths.js';
 import { activeTunnelIps, trackTunnelSocket } from './sockets.js';
+import { parsePort } from '../services/config.js';
 
 export function createTunnelHandler({
   tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders = 'auto', trustProxy,
@@ -29,7 +30,12 @@ export function createTunnelHandler({
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
-    const target = routes.get(`/${tunnel.protocol}`);
+    let target = routes.get(`/${tunnel.protocol}`);
+    if (tunnel.upstreamPort !== undefined) {
+      const endpoint = new URL(target);
+      endpoint.port = String(parsePort(tunnel.upstreamPort, 'Tunnel upstream port'));
+      target = endpoint.href;
+    }
     const metadata = clientMetadata(request);
     if (metadata.ip && blocklist.has(metadata.ip)) {
       logger.warn({ ...metadata, protocol: tunnel.protocol }, 'Gateway connection blocked');

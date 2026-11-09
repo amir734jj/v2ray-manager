@@ -21,6 +21,45 @@ message AlterInboundRequest {
 }
 message AlterInboundResponse {}
 
+message AddInboundRequest { InboundHandlerConfig inbound = 1; }
+message AddInboundResponse {}
+message RemoveInboundRequest { string tag = 1; }
+message RemoveInboundResponse {}
+message InboundHandlerConfig {
+  string tag = 1;
+  TypedMessage receiver_settings = 2;
+  TypedMessage proxy_settings = 3;
+}
+message PortRange {
+  uint32 from = 1;
+  uint32 to = 2;
+}
+message IPOrDomain { bytes ip = 1; }
+message ReceiverConfig {
+  PortRange port_range = 1;
+  IPOrDomain listen = 2;
+  StreamConfig stream_settings = 4;
+  SniffingConfig sniffing_settings = 8;
+}
+message StreamConfig {
+  repeated TransportConfig transport_settings = 2;
+  string protocol_name = 5;
+}
+message TransportConfig {
+  TypedMessage settings = 2;
+  string protocol_name = 3;
+}
+message WebSocketConfig { string path = 2; }
+message SniffingConfig {
+  bool enabled = 1;
+  repeated string destination_override = 2;
+}
+message ShadowsocksAccount {
+  string password = 1;
+  uint32 cipher_type = 2;
+}
+message ShadowsocksServerConfig { User user = 2; }
+
 // StatsService uses the same wire fields, with its own gRPC service path.
 message QueryStatsRequest {
   string pattern = 1;

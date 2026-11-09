@@ -4,6 +4,7 @@ import { createTrafficMeter } from './traffic.js';
 import { createResourceMeter } from './resources.js';
 import { listAccounts } from './accounts.js';
 import { gatewayEvents } from './events.js';
+import { protocols } from '@v2ray-manager/generator';
 
 const startedAt = new Date();
 const traffic = createTrafficMeter();
@@ -66,7 +67,7 @@ setInterval(() => {
   gatewayEvents.emit('status');
   gatewayEvents.emit('heartbeat');
 }, 5000).unref();
-const counters = lodash.map(['vless', 'vmess', 'trojan'], protocol => ({
+const counters = lodash.map(protocols, protocol => ({
   transport: 'ws', protocol, active: 0, total: 0, errors: 0,
 }));
 const countries = new Map();

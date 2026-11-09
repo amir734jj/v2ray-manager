@@ -1,6 +1,8 @@
 import { createOutbound, createConnectionUrl } from 'v2ray-tools';
 
-export const protocols = ['vless', 'vmess', 'trojan'];
+export const protocolPorts = { vless: 53217, vmess: 53218, trojan: 53219, shadowsocks: 53220 };
+export const protocols = Object.keys(protocolPorts);
+export const shadowsocksMethod = 'aes-256-gcm';
 const dnsAddresses = ['1.1.1.1', '8.8.8.8'];
 const clientDnsTag = 'proxy-dns';
 
@@ -35,7 +37,18 @@ export function configureServerTransports(config) {
       outbound.settings = { ...outbound.settings, domainStrategy: 'UseIP' };
     }
   }
-  config.inbounds = config.inbounds.filter(inbound => inbound.protocol !== 'shadowsocks');
+  if (!config.inbounds.some(inbound => inbound.protocol === 'shadowsocks')) {
+    const password = config.inbounds.find(inbound => inbound.protocol === 'trojan')?.settings?.clients?.[0]?.password;
+    if (!password) throw new Error('Missing Shadowsocks password; use the WebSocket server template');
+    config.inbounds.push({
+      tag: `shadowsocks-${protocolPorts.shadowsocks}`,
+      listen: '0.0.0.0',
+      port: protocolPorts.shadowsocks,
+      protocol: 'shadowsocks',
+      settings: { method: shadowsocksMethod, password, network: 'tcp' },
+      streamSettings: { network: 'ws' },
+    });
+  }
   for (const protocol of protocols) {
     const inbound = config.inbounds.find(item => item.protocol === protocol && item.streamSettings?.network === 'ws');
     if (!inbound) throw new Error(`Missing ${protocol} ws inbound; use the WebSocket server template`);
@@ -51,6 +64,8 @@ export function configureServerTransports(config) {
 
 export function configureManagedServer(config) {
   configureServerTransports(config);
+  // V2Ray's single-user Shadowsocks inbounds are created per subscription by the API.
+  config.inbounds = config.inbounds.filter(inbound => inbound.protocol !== 'shadowsocks');
   for (const inbound of config.inbounds.filter(item => protocols.includes(item.protocol))) {
     inbound.settings.clients = [];
   }
@@ -111,7 +126,7 @@ export function configureClient(config, serverConfig, host) {
   if (typeof proxyTag !== 'string' || !proxyTag.trim()) {
     throw new Error('Client proxy outbound must have a tag for tunneled DNS');
   }
-  config.outbounds = config.outbounds.filter(outbound => outbound.protocol !== 'shadowsocks').map(outbound => protocols.includes(outbound.protocol)
+  config.outbounds = config.outbounds.map(outbound => protocols.includes(outbound.protocol)
     ? createOutbound({ ...connectionOptions(serverConfig, outbound.protocol, host), tag: outbound.tag })
     : outbound);
 

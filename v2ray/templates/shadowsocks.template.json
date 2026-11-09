@@ -1,0 +1,51 @@
+{
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 10808,
+      "protocol": "socks",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"],
+        "metadataOnly": false
+      },
+      "settings": { "udp": true }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "shadowsocks",
+      "settings": {
+        "servers": [
+          {
+            "address": "YOUR_SERVER_IP",
+            "port": 443,
+            "method": "aes-256-gcm",
+            "password": "00000000-0000-0000-0000-000000000000"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": { "serverName": "YOUR_SERVER_IP" },
+        "wsSettings": { "path": "/shadowsocks", "headers": { "Host": "YOUR_SERVER_IP" } }
+      },
+      "mux": { "enabled": false }
+    },
+    { "tag": "direct", "protocol": "freedom" },
+    { "tag": "blocked", "protocol": "blackhole" }
+  ],
+  "dns": {
+    "tag": "proxy-dns",
+    "servers": ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]
+  },
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      { "type": "field", "inboundTag": ["proxy-dns"], "outboundTag": "proxy" },
+      { "type": "field", "ip": ["geoip:private"], "outboundTag": "direct" }
+    ]
+  }
+}

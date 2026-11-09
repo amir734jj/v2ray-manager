@@ -2,7 +2,7 @@ import grpc from '@grpc/grpc-js';
 import protobuf from 'protobufjs';
 import lodash from 'lodash';
 import { fileURLToPath } from 'node:url';
-import { protocols } from '@v2ray-manager/generator';
+import { protocolPorts, protocols } from '@v2ray-manager/generator';
 
 const root = protobuf.loadSync(fileURLToPath(new URL('./v2ray-api.proto', import.meta.url)));
 const namespace = 'v2ray.core.app.proxyman.command';
@@ -21,6 +21,8 @@ function rpcMethod(service, method, request, response) {
 }
 const HandlerClient = grpc.makeGenericClientConstructor({
   alterInbound: rpcMethod(`${namespace}.HandlerService`, 'AlterInbound', 'AlterInboundRequest', 'AlterInboundResponse'),
+  addInbound: rpcMethod(`${namespace}.HandlerService`, 'AddInbound', 'AddInboundRequest', 'AddInboundResponse'),
+  removeInbound: rpcMethod(`${namespace}.HandlerService`, 'RemoveInbound', 'RemoveInboundRequest', 'RemoveInboundResponse'),
 }, 'HandlerService');
 const StatsClient = grpc.makeGenericClientConstructor({
   queryStats: rpcMethod('v2ray.core.app.stats.command.StatsService', 'QueryStats', 'QueryStatsRequest', 'QueryStatsResponse'),
@@ -32,14 +34,24 @@ const LoggerClient = grpc.makeGenericClientConstructor({
     responseStream: true,
   },
 }, 'LoggerService');
-const ports = { vless: 53217, vmess: 53218, trojan: 53219 };
 const typedMessage = (name, value) => ({ typeUrl: `types.v2fly.org/${name}`, value });
+const missingInbound = 'not enough information for making a decision';
 
 export function createV2rayApi(address) {
   if (!address) throw new Error('V2RAY_API_ADDRESS is required');
   const client = new HandlerClient(address, grpc.credentials.createInsecure());
   const statsClient = new StatsClient(address, grpc.credentials.createInsecure());
   const loggerClient = new LoggerClient(address, grpc.credentials.createInsecure());
+  const shadowsocks = new Map();
+  function handlerCall(method, request, expectedMessage) {
+    return new Promise((resolve, reject) => {
+      client[method](request, { deadline: Date.now() + 5000 }, error => {
+        if (!error) return resolve(true);
+        if (error.code === grpc.status.UNKNOWN && error.details === expectedMessage) return resolve(false);
+        reject(error);
+      });
+    });
+  }
   function readStats(method, request) {
     return new Promise((resolve, reject) => {
       statsClient[method](request, { deadline: Date.now() + 5000 }, (error, response) => {
@@ -50,32 +62,83 @@ export function createV2rayApi(address) {
   }
   function alter(protocol, operation, value, expectedMessage) {
     if (!protocols.includes(protocol)) throw new TypeError('Unsupported tunnel protocol');
-    return new Promise((resolve, reject) => {
-      client.alterInbound({
-        tag: `${protocol}-${ports[protocol]}`,
-        operation: typedMessage(`${namespace}.${operation}`, encode(operation, value)),
-      }, { deadline: Date.now() + 5000 }, error => {
-        if (!error) return resolve();
-        if (error.code === grpc.status.UNKNOWN && error.details === expectedMessage) return resolve();
-        reject(error);
-      });
+    return handlerCall('alterInbound', {
+      tag: `${protocol}-${protocolPorts[protocol]}`,
+      operation: typedMessage(`${namespace}.${operation}`, encode(operation, value)),
+    }, expectedMessage);
+  }
+  async function addShadowsocks(connection) {
+    let state = shadowsocks.get(connection.id);
+    if (state?.applied && state.credential === connection.credential) return;
+    if (!state) {
+      const used = new Set([...shadowsocks.values()].map(item => item.port));
+      let port = 20000;
+      while (used.has(port) && port < protocolPorts.vless) port++;
+      if (port >= protocolPorts.vless) throw new Error('No private Shadowsocks inbound ports available');
+      state = { port, applied: false };
+      shadowsocks.set(connection.id, state);
+    }
+    state.applied = false;
+    const tag = `shadowsocks-${connection.id}`;
+    await handlerCall('removeInbound', { tag }, missingInbound);
+    await handlerCall('addInbound', {
+      inbound: {
+        tag,
+        receiverSettings: typedMessage('v2ray.core.app.proxyman.ReceiverConfig', encode('ReceiverConfig', {
+          portRange: { from: state.port, to: state.port },
+          listen: { ip: Buffer.from([0, 0, 0, 0]) },
+          streamSettings: {
+            protocolName: 'websocket',
+            transportSettings: [{
+              protocolName: 'websocket',
+              settings: typedMessage('v2ray.core.transport.internet.websocket.Config',
+                encode('WebSocketConfig', { path: '/shadowsocks' })),
+            }],
+          },
+          sniffingSettings: { enabled: true, destinationOverride: ['http', 'tls'] },
+        })),
+        proxySettings: typedMessage('v2ray.core.proxy.shadowsocks.ServerConfig', encode('ShadowsocksServerConfig', {
+          user: {
+            email: `connection-${connection.id}`,
+            account: typedMessage('v2ray.core.proxy.shadowsocks.Account',
+              encode('ShadowsocksAccount', { password: connection.credential, cipherType: 2 })), // AES_256_GCM.
+          },
+        })),
+      },
     });
+    state.credential = connection.credential;
+    state.applied = true;
   }
   return {
     followLogs() {
       return loggerClient.followLog({});
     },
-    add(protocol, connection) {
+    shadowsocksPort(id) {
+      const state = shadowsocks.get(id);
+      return state?.applied ? state.port : undefined;
+    },
+    async add(protocol, connection) {
+      if (protocol === 'shadowsocks') return addShadowsocks(connection);
       const email = `connection-${connection.id}`;
-      return alter(protocol, 'AddUserOperation', {
+      const added = await alter(protocol, 'AddUserOperation', {
         user: {
           email,
           account: typedMessage(`v2ray.core.proxy.${protocol}.Account`,
             encode('Credential', { value: connection.credential })),
         },
       }, `proxy/${protocol}${protocol === 'vmess' ? '/inbound' : ''}: User ${email} already exists.`);
+      // Fresh VLESS users also identify a restarted core with no dynamic inbounds.
+      if (added && protocol === 'vless') {
+        const state = shadowsocks.get(connection.id);
+        if (state) state.applied = false;
+      }
     },
-    remove(protocol, connection) {
+    async remove(protocol, connection) {
+      if (protocol === 'shadowsocks') {
+        await handlerCall('removeInbound', { tag: `shadowsocks-${connection.id}` }, missingInbound);
+        shadowsocks.delete(connection.id);
+        return;
+      }
       const email = `connection-${connection.id}`;
       return alter(protocol, 'RemoveUserOperation', { email },
         `proxy/${protocol}${protocol === 'vmess' ? '/inbound' : ''}: User ${email} not found.`);

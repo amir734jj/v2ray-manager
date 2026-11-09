@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import createError from 'http-errors';
 import lodash from 'lodash';
-import { createConnectionUrls, protocols, validateHost } from '@v2ray-manager/generator';
+import { createConnectionUrls, protocols, shadowsocksMethod, validateHost } from '@v2ray-manager/generator';
 import { publicConnection } from '../database/postgres/tunnel-connections.js';
 import { parseTunnelPath } from '../proxy/paths.js';
 import { createDestinationMonitor } from './destinations.js';
@@ -48,7 +48,9 @@ export function subscriptionContent(connection, host) {
     inbounds: lodash.map(protocols, protocol => ({
       protocol,
       tag: `${protocol}-${connection.id.slice(0, 8)}`,
-      settings: { clients: [protocol === 'trojan' ? { password: connection.credential } : { id: connection.credential, alterId: 0 }] },
+      settings: protocol === 'shadowsocks'
+        ? { method: shadowsocksMethod, password: connection.credential, network: 'tcp' }
+        : { clients: [protocol === 'trojan' ? { password: connection.credential } : { id: connection.credential, alterId: 0 }] },
       streamSettings: { network: 'ws', wsSettings: { path: `/${protocol}/${connection.credential}` } },
     })),
   };
@@ -74,6 +76,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
   const authorizations = new Map();
   const authorizationCredentials = new Map();
   let authorizationReady = false;
+  let shadowsocksPrepared = false;
   const destinationMonitor = createDestinationMonitor({
     api, store: destinations, listIds: async () => lodash.map(await listRows(), 'id'), logger, onChange,
   });
@@ -159,6 +162,11 @@ export function createConnectionService({ connections, api, host, disconnect, li
     const rows = await connections.all();
     if (!Array.isArray(rows)) throw new TypeError('Invalid subscription reconciliation rows');
     const desired = new Map(lodash.map(rows, row => [row.id, row]));
+    if (!shadowsocksPrepared) {
+      // Clear old listeners before reallocating ports after a gateway-only restart.
+      for (const row of rows) await api.remove('shadowsocks', row);
+      shadowsocksPrepared = true;
+    }
     for (const [id, credential] of [...authorizationCredentials]) {
       const row = desired.get(id);
       if (!row || row.credential !== credential || !row.enabled || row.syncStatus !== 'applied') {
@@ -439,6 +447,11 @@ export function createConnectionService({ connections, api, host, disconnect, li
       if (!authorizationReady || stopping) throw createError(503, 'Tunnel authorization is unavailable; awaiting synchronization');
       const authorization = authorizations.get(parsed.credential);
       if (!authorization || blocked.has(authorization.id)) return null;
+      if (parsed.protocol === 'shadowsocks') {
+        const upstreamPort = api.shadowsocksPort(authorization.id);
+        if (upstreamPort === undefined) throw createError(503, 'Shadowsocks is awaiting synchronization');
+        return { ...authorization, protocol: parsed.protocol, upstreamPort };
+      }
       return { ...authorization, protocol: parsed.protocol };
     },
     async subscription(token) {

@@ -87,6 +87,27 @@
       "mux": { "enabled": false }
     },
     {
+      "tag": "shadowsocks",
+      "protocol": "shadowsocks",
+      "settings": {
+        "servers": [
+          {
+            "address": "YOUR_SERVER_IP",
+            "port": 443,
+            "method": "aes-256-gcm",
+            "password": "00000000-0000-0000-0000-000000000000"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": { "serverName": "YOUR_SERVER_IP" },
+        "wsSettings": { "path": "/shadowsocks", "headers": { "Host": "YOUR_SERVER_IP" } }
+      },
+      "mux": { "enabled": false }
+    },
+    {
       "tag": "direct",
       "protocol": "freedom"
     },

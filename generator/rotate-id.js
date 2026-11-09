@@ -53,6 +53,7 @@ async function main() {
   const serverRaw = await readFile(sourcePath, 'utf8');
   const serverJson = configureServerTransports(JSON.parse(serverRaw));
   for (const inbound of serverJson.inbounds ?? []) {
+    if (inbound.protocol === 'shadowsocks') inbound.settings.password = newId;
     for (const client of inbound.settings?.clients ?? []) {
       if (client.id)       client.id       = newId;
       if (client.password) client.password = newId;
@@ -73,6 +74,7 @@ async function main() {
     { dir: 'vless',       label: 'VLESS',       wsUrl: urls.vless },
     { dir: 'vmess',       label: 'VMess',       wsUrl: urls.vmess },
     { dir: 'trojan',      label: 'Trojan',      wsUrl: urls.trojan },
+    { dir: 'shadowsocks', label: 'Shadowsocks', wsUrl: urls.shadowsocks },
   ];
 
   // --- Write connection files, QR images & print QR codes --------------------

@@ -80,6 +80,27 @@
         "security": "none",
         "wsSettings": { "path": "/trojan" }
       }
+    },
+    {
+      "tag": "shadowsocks-53220",
+      "listen": "0.0.0.0",
+      "port": 53220,
+      "protocol": "shadowsocks",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"],
+        "metadataOnly": false
+      },
+      "settings": {
+        "method": "aes-256-gcm",
+        "password": "00000000-0000-0000-0000-000000000000",
+        "network": "tcp"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "/shadowsocks" }
+      }
     }
   ],
   "outbounds": [

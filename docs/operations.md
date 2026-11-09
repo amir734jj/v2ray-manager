@@ -2,7 +2,7 @@
 
 For the quick start, see the [README](../README.md).
 
-VLESS, VMess, and Trojan over WebSocket, behind Cloudflare and Coolify.
+VLESS, VMess, Trojan, and Shadowsocks over WebSocket, behind Cloudflare and Coolify.
 
 ```text
 Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
@@ -13,6 +13,24 @@ Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 | VLESS | `/vless/<credential>` | 53217 |
 | VMess | `/vmess/<credential>` | 53218 |
 | Trojan | `/trojan/<credential>` | 53219 |
+| Shadowsocks | `/shadowsocks/<credential>` | Per-subscription private TCP port |
+
+Shadowsocks uses `aes-256-gcm`. Refresh an existing subscription URL after
+deployment to obtain its new SIP002 `ss://` profile. The profile uses
+`v2ray-plugin` with TLS, the same hostname and port 443, the subscription's
+private WebSocket path, and `mux=0`; clients must support this transport.
+Existing VLESS, VMess, and Trojan links and credentials are unchanged.
+Native Shadowsocks TCP/UDP ports are not published; this transport carries TCP.
+
+V2Ray's Shadowsocks inbound is single-user. The gateway therefore provisions
+one inbound per enabled subscription through HandlerService, with that
+subscription's password and statistics email. Private listener ports are
+allocated from 20000 through 53216 and are never published by Compose.
+Startup removes old Shadowsocks listeners before reallocating ports; periodic
+reconciliation is idempotent and restores listeners after a core restart.
+Pause, reset, and delete remove only the affected subscription's listener.
+The existing per-subscription SQLite traffic records aggregate all four
+protocols without a schema change.
 
 These WebSocket paths require an enabled, synchronized connection credential,
 not a management cookie or browser Origin header. The gateway rewrites each
@@ -187,13 +205,13 @@ The administrator's **Subscriptions** page provides:
 - **Replace subscription URL:** issue a new URL without changing tunnel
   credentials; the old URL stops updating, but cached profiles still work.
 - **Delete subscription:** after confirmation, disable access, close its tunnels,
-  remove credentials from all three V2Ray protocols, and permanently delete the
+  remove credentials from all four V2Ray protocols, and permanently delete the
   record. Its URL and cached profiles stop working. If cleanup fails, an error
   is shown and the record stays disabled; retry deletion after resolving the error.
 - **Concurrent IP limit:** set at creation or edit with **Save limit**.
   `0` means unlimited and is the default for new subscriptions.
   The gateway counts distinct normalized client IPs with open tunnels for that
-  subscription across all three protocols, including pending handshakes.
+  subscription across all four protocols, including pending handshakes.
   A new IP receives HTTP 429 when the limit is reached; existing IPs may open
   more tunnels. A slot is released when that IP's last tunnel closes.
   Lowering the limit keeps existing tunnels/IPs connected and rejects new IPs
@@ -333,7 +351,7 @@ traffic totals and previous activity remain visible when no tunnels are open:
   packet timestamp or proof of authenticated application traffic. It remains
   available in snapshots after all sockets close and is restored from SQLite after a restart.
 - `connections[].coreTraffic`: authenticated V2Ray `uploadBytes`/`downloadBytes`
-  totals, aggregated across VLESS, VMess, and Trojan using the connection's
+  totals, aggregated across VLESS, VMess, Trojan, and Shadowsocks using the connection's
   stable internal subscription identifier. Byte totals are decimal strings in the API
   to preserve 64-bit precision.
 
@@ -505,7 +523,7 @@ Administrator API subscription lists and realtime snapshots include `maxConcurre
 addresses with open tunnels). Subscription cards show these details alongside
 the editable limit; `0` means unlimited.
 The API uses the same socket registry
-as limit enforcement, includes all three protocols, and excludes destroyed or
+as limit enforcement, includes all four protocols, and excludes destroyed or
 blocked sockets. These addresses are not persisted as connection history.
 Limits persist in PostgreSQL; active slots are held only while
 gateway sockets are open and are cleared on restart.
@@ -553,7 +571,7 @@ V2Fly can fall back to the system resolver if built-in resolution fails; this
 is not a fail-closed DNS policy. Keep the server's system resolver trusted and
 investigate DNS resolution errors rather than relying on that fallback.
 
-VLESS, VMess, and Trojan inbounds recover visible HTTP Host/TLS SNI hostnames.
+VLESS, VMess, Trojan, and Shadowsocks inbounds recover visible HTTP Host/TLS SNI hostnames.
 If a client sends a poisoned IP together with a recoverable hostname, V2Ray
 replaces the IP with that hostname and resolves it again on the server.
 This only helps traffic that reaches the tunnel. It cannot recover an absent or
@@ -739,7 +757,7 @@ configs separately; existing managed links remain valid.
   subscription name captured when the connection opened, protocols, tunnel count,
   and upload/download in decimal Mbps. Internal subscription IDs are not displayed.
   Renamed subscriptions use their new name on new connections.
-  A second table reports protocol totals (`vless`, `vmess`, `trojan`).
+  A second table reports protocol totals (`vless`, `vmess`, `trojan`, `shadowsocks`).
   With no open tunnels, it explicitly says `No clients connected.`
   New sockets awaiting their first sample are marked `collecting` or `pending`.
   The actual sampling interval is displayed to two decimal places; rates use the

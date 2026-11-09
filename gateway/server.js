@@ -8,6 +8,7 @@ import { createGatewayProxy } from './proxy';
 import { createGatewayApp } from './app.js';
 import { createDatabase, createResourceHistory } from './database';
 import { discoverTrustedProxies } from './services/client-ip.js';
+import { protocolPorts } from '@v2ray-manager/generator';
 
 const logger = createGatewayLogger();
 const ipDetails = createIpDetails({ logger, onChange: () => gatewayEvents.emit('status') });
@@ -41,6 +42,7 @@ try {
   gatewayProxy = createGatewayProxy({
     upstreamHost,
     ports: {
+      ...protocolPorts,
       vless: process.env.V2RAY_VLESS_PORT ?? '53217',
       vmess: process.env.V2RAY_VMESS_PORT ?? '53218',
       trojan: process.env.V2RAY_TROJAN_PORT ?? '53219',
