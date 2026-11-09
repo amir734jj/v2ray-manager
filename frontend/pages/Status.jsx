@@ -35,12 +35,73 @@ function IpLocation({ details, countries }) {
   </>;
 }
 
-export default function Status({ user }) {
+function OnlineSubscriptions({ resource }) {
+  const { data, error, loading } = resource;
+  const online = data ? data.connections.filter(connection => connection.gateway.openTunnels > 0) : [];
+
+  return <section class="mb-4" aria-labelledby="online-subscriptions">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <h2 class="h4" id="online-subscriptions">Online subscriptions</h2>
+      <Link href="/subscriptions">Manage subscriptions</Link>
+    </div>
+    <p class="text-body-secondary">
+      Online means at least one gateway tunnel is open, not proof that browsing works.
+      Connections update live; throughput is sampled every 5 seconds.
+    </p>
+    {error && <div class="alert alert-danger" role="alert">Subscription status: {error}</div>}
+    {data?.tunnelError && <div class="alert alert-warning" role="alert">{data.tunnelError}</div>}
+    {loading && <p role="status">Loading online subscriptions...</p>}
+    {data && <Table headings={['Subscription', 'Status', 'Connected IPs', 'Open tunnels', 'Upload', 'Download', 'Connected since']}>
+      {online.map(connection => <tr key={connection.id}>
+        <th scope="row">
+          <div class="text-break">{connection.name}</div>
+          <code class="small text-body-secondary">{connection.id.slice(0, 8)}</code>
+        </th>
+        <td><span class={`badge ${error ? 'text-bg-secondary' : 'text-bg-success'}`}>
+          {error ? 'Unknown (stale)' : 'Online'}
+        </span></td>
+        <td>{connection.connectedIps.map(ip => <div key={ip}><code class="text-break">{ip}</code></div>)}</td>
+        <td>{connection.gateway.openTunnels}</td>
+        <td class="text-nowrap"><Rate value={connection.gateway.traffic.uploadBytesPerSecond} /></td>
+        <td class="text-nowrap"><Rate value={connection.gateway.traffic.downloadBytesPerSecond} /></td>
+        <td>{connection.gateway.connectedSince
+          ? <time dateTime={connection.gateway.connectedSince}>{new Date(connection.gateway.connectedSince).toLocaleString()}</time>
+          : 'Unknown'}</td>
+      </tr>)}
+      {!online.length && <tr><td colSpan={7}>
+        {error ? 'No online subscriptions in the last received snapshot.' : 'No subscriptions currently online.'}
+      </td></tr>}
+    </Table>}
+  </section>;
+}
+
+function SubscriptionNames({ connections, resource }) {
+  if (!resource.data) return <span class="text-body-secondary">{resource.loading ? 'Loading...' : 'Unavailable'}</span>;
+  const stale = resource.error || resource.data.tunnelError;
+  return <>
+    {connections.length ? connections.map(connection => <div key={connection.id} class="text-break">
+      {connection.name} <code class="small text-body-secondary">({connection.id.slice(0, 8)})</code>
+    </div>) : <span class="text-body-secondary">{stale ? 'Unavailable' : 'Unknown'}</span>}
+    {stale && connections.length > 0 && <div class="small text-body-secondary">Stale subscription details</div>}
+  </>;
+}
+
+function StatusContent({ user, subscriptionResource }) {
   const { data: status, error: refreshError, loading, refresh } = useResource('/api/status.json');
   const [expandedIp, setExpandedIp] = useState(new URLSearchParams(location.search).get('client'));
   const [showHistory, setShowHistory] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const subscriptionsByIp = new Map();
+  const subscriptionsById = new Map();
+  for (const connection of subscriptionResource?.data?.connections ?? []) {
+    subscriptionsById.set(connection.id, connection);
+    for (const ip of connection.connectedIps) {
+      if (!subscriptionsByIp.has(ip)) subscriptionsByIp.set(ip, []);
+      subscriptionsByIp.get(ip).push(connection);
+    }
+  }
+  const clientColumns = 8 + (user.admin ? 1 : 0) + (user.admin && status?.blocklistAvailable ? 1 : 0);
 
   async function block(ip) {
     setBusy(true);
@@ -68,6 +129,7 @@ export default function Status({ user }) {
             <p class="text-body-secondary">{label}</p><strong class="fs-2">{value}</strong>
           </div></div></div>)}
       </section>
+      {user.admin && <OnlineSubscriptions resource={subscriptionResource} />}
       <h2 class="h4">Gateway process resources</h2>
       <p class="text-body-secondary">CPU averages the latest sampling interval; 100% is one CPU core and usage can exceed 100%. Memory is for the gateway process only, not the host, container total, or V2Ray.</p>
       <section class="row g-3 mb-4" aria-label="Gateway process resources">
@@ -103,10 +165,13 @@ export default function Status({ user }) {
         {' '}{status.clientDetails.omitted} sockets are omitted from IP groups; protocol and country totals still include every socket.
       </div>}
       <p class="text-body-secondary">One group per IP, not per person or device. Expand to see sockets. User-Agent may be missing or spoofed and does not reliably identify a device model.</p>
-      <Table headings={['IP address', 'Location', 'ISP / Network', 'Protocols', status.clientDetails.omitted ? 'Displayed sockets' : 'Open client sockets', 'Upload', 'Download', 'Details', ...(user.admin && status.blocklistAvailable ? ['Actions'] : [])]}>
+      {user.admin && <p class="text-body-secondary">Subscriptions lists every subscription currently using each IP. Expand a row to see the subscription associated with each connection.</p>}
+      <Table headings={['IP address', ...(user.admin ? ['Subscriptions'] : []), 'Location', 'ISP / Network', 'Protocols', status.clientDetails.omitted ? 'Displayed sockets' : 'Open client sockets', 'Upload', 'Download', 'Details', ...(user.admin && status.blocklistAvailable ? ['Actions'] : [])]}>
         {status.clientGroups.map(group => <Fragment key={group.ip}>
           <tr>
             <th scope="row">{group.ip}</th>
+            {user.admin && <td><SubscriptionNames connections={subscriptionsByIp.get(group.ip) ?? []}
+              resource={subscriptionResource} /></td>}
             <td><IpLocation details={group.ipDetails} countries={group.countries} /></td>
             <td>{group.ipDetails?.status === 'ready'
               ? group.ipDetails.isp || group.ipDetails.organization || 'Unknown'
@@ -128,7 +193,7 @@ export default function Status({ user }) {
             {user.admin && status.blocklistAvailable && <td><button class="btn btn-sm btn-outline-danger text-nowrap" disabled={busy}
               onClick={() => block(group.ip)}>Block IP</button></td>}
           </tr>
-          {expandedIp === group.ip && <tr><td colSpan={user.admin && status.blocklistAvailable ? 9 : 8}>
+          {expandedIp === group.ip && <tr><td colSpan={clientColumns}>
             {group.ipDetails?.status === 'ready' && <dl class="row mb-3">
               {[
                 ['Organization', group.ipDetails.organization],
@@ -140,9 +205,13 @@ export default function Status({ user }) {
                 <dt class="col-sm-3">{label}</dt><dd class="col-sm-9">{value || 'Unknown'}</dd>
               </Fragment>)}
             </dl>}
-            <Table headings={['Connection ID', 'Protocol', 'Country', 'Upload', 'Download', 'Reported client (User-Agent)', 'Connected since (UTC)', 'Open for (seconds)']}>
+            <Table headings={['Connection ID', ...(user.admin ? ['Subscription'] : []), 'Protocol', 'Country', 'Upload', 'Download', 'Reported client (User-Agent)', 'Connected since (UTC)', 'Open for (seconds)']}>
               {status.clients.filter(client => client.ip === group.ip).map(client => <tr key={client.connectionId}>
-                <th scope="row" class="text-break">{client.connectionId}</th><td>{client.protocol}</td>
+                <th scope="row" class="text-break">{client.connectionId}</th>
+                {user.admin && <td><SubscriptionNames
+                  connections={subscriptionsById.has(client.subscriptionId) ? [subscriptionsById.get(client.subscriptionId)] : []}
+                  resource={subscriptionResource} /></td>}
+                <td>{client.protocol}</td>
                 <td>{client.countryName} ({client.countryCode})</td>
                 <td class="text-nowrap"><Rate value={client.traffic.uploadBytesPerSecond} /></td>
                 <td class="text-nowrap"><Rate value={client.traffic.downloadBytesPerSecond} /></td>
@@ -152,7 +221,7 @@ export default function Status({ user }) {
             </Table>
           </td></tr>}
         </Fragment>)}
-        {!status.clientGroups.length && <tr><td colSpan={user.admin && status.blocklistAvailable ? 9 : 8}>No active client connections.</td></tr>}
+        {!status.clientGroups.length && <tr><td colSpan={clientColumns}>No active client connections.</td></tr>}
       </Table>
       {status.blocklistAvailable && <p><Link href="/blocked-ips">View blocked IPs</Link></p>}
       <h2 class="h4 mt-4">Connections by country</h2>
@@ -164,4 +233,13 @@ export default function Status({ user }) {
       </footer>
     </>}
   </>;
+}
+
+function AdministratorStatus({ user }) {
+  const subscriptionResource = useResource('/api/connections');
+  return <StatusContent user={user} subscriptionResource={subscriptionResource} />;
+}
+
+export default function Status({ user }) {
+  return user.admin ? <AdministratorStatus user={user} /> : <StatusContent user={user} />;
 }

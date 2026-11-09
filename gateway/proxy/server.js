@@ -55,7 +55,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
     },
     createHandler: app => createGatewayHandler({ app, routes }),
     attach(server, { tunnels }) {
-      if (logTraffic) stopUpstreamTraffic = logUpstreamTraffic(proxy, logger, routes.keys());
+      if (logTraffic) stopUpstreamTraffic = logUpstreamTraffic(proxy, logger, routes.keys(), { tunnelSockets, wsConnections });
       server.on('upgrade', createTunnelHandler({
         tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders, trustedProxies,
       }));

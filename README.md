@@ -131,6 +131,14 @@ manually. Expiration and physical-device identification are not implemented.
 ## Dashboard and history
 
 The **Status** page shows connections, CPU, memory, and proxy throughput.
+Administrators also see **Online subscriptions**, listing subscription names,
+connected IPs, open tunnels, upload/download speeds, and connection start times.
+Connect/disconnect changes arrive live; rates update every five seconds.
+Online means an open gateway tunnel, not verified browsing health.
+The **Active clients by IP** table also shows all associated subscriptions for
+each IP; expand an IP to see the exact subscription alongside each connection's
+country. Shared IPs can belong to multiple subscriptions. These details are
+administrator-only.
 Select **Show history graphs** to see time ranges, zoom, and lowest/highest
 values for these metrics. Graphs are hidden by default. Connection attempts
 and proxy failures are cumulative and reset when the gateway restarts.
@@ -145,6 +153,13 @@ The administrator can block IPs from the dashboard.
 The explicit `true` setting preserves legacy Cloudflare-only trust when no
 `GATEWAY_TRUSTED_PROXIES` are configured; use it only with origin access restricted
 to Cloudflare and trusted proxies, or client IP headers can be forged.
+
+Gateway logs are readable plain text. Every five seconds, a connection snapshot
+lists connected subscriptions and client IPs, protocols, open tunnels, and
+upload/download Mbps, followed by protocol totals. Errors retain readable
+details and stacks rather than inline JSON. Logs contain subscription names
+and IPs; restrict access and retention. Credentials and subscription URLs are
+not included in snapshots.
 
 The authenticated endpoints `/api/status.json` and
 `/api/resource-history?range=1h` expose status and chart data. `/healthz`

@@ -57,6 +57,7 @@ export function createTunnelHandler({
       transport: 'ws',
       protocol: tunnel.protocol,
       tunnelId: tunnel.id,
+      subscriptionName: tunnel.name,
       connectedAt: new Date().toISOString(),
     };
     const connection = {

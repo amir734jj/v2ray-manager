@@ -137,7 +137,8 @@ subscription IP lists, and targeted disconnects inspect only that subscription's
 sockets. Closed sockets are removed from the index, and empty entries are deleted.
 These checks do not add work to forwarded data chunks.
 Dashboard tunnel counters and throughput still measure the
-client-facing sockets; the gateway emits upstream throughput logs per protocol.
+client-facing sockets; the gateway emits periodic connection snapshots with
+upstream throughput per connected subscription/IP and protocol.
 Process CPU/memory metrics describe the gateway process, not V2Ray. Shutdown
 closes all proxied tunnels. No additional ports should be published.
 For a non-Docker setup, install Node/npm for the build and Bun for the gateway:
@@ -625,6 +626,23 @@ configs separately; existing managed links remain valid.
   Socket.IO pushes connection, blocklist and user changes, along with periodic
   snapshots. Status includes active tunnels, attempts, and errors by protocol
   and country, plus aggregate proxy upload and download throughput.
+  Administrators see an **Online subscriptions** table near the top of the page,
+  showing subscription names and short IDs, connected IPs, open tunnels,
+  upload/download rates, and connection start times. It uses the existing
+  administrator-only `connections` Socket.IO resource for subscription metadata.
+  The **Active clients by IP** table lists every subscription currently using
+  each IP. Expanded socket rows show the exact subscription alongside its country,
+  even when multiple subscriptions share an IP. Subscription names and IP
+  associations use the same live feed as the online table; renames are reflected
+  without reconnecting the tunnel.
+  Administrator-only REST and Socket.IO status snapshots include
+  `clients[].subscriptionId` for precise socket attribution. Viewer status
+  snapshots omit that field; subscription names and associations remain
+  administrator-only.
+  Connect/disconnect events update it live, including idle-but-open tunnels;
+  rates update every five seconds. Connection failures mark retained rows stale
+  rather than claiming the last snapshot is current. No open tunnels produces
+  an explicit empty state. Online is not an end-to-end browsing health check.
   Protocol and country tables hide rows whose open sockets, connection attempts
   and proxy failures are all zero; the JSON snapshot retains all counters.
   Rates are averages over the most recent five-second sampling interval and
@@ -688,26 +706,32 @@ configs separately; existing managed links remain valid.
   service currently allows 1,000 requests/day; cached IPs avoid repeat requests
   but a large number of new IPs can still exhaust that allowance.
 - **Health:** `https://ws.hesamian.com/healthz` returns `ok`.
-- **Logs:** asynchronous, single-line `pino-pretty` records appear in Coolify
-  stdout, for example
-  `[20:57:39] INFO: Gateway upstream throughput {"gatewayToV2rayMbps":1.2,"v2rayToGatewayMbps":0.4}`.
-  Times are UTC and structured fields are shown inline as JSON.
+- **Logs:** asynchronous, plain-text `pino-pretty` records appear in Coolify
+  stdout. Times are UTC. Other fields appear as indented `field: value` lines,
+  not inline JSON; errors retain their messages, codes, and readable stacks.
+  Control characters in field values and subscription names are escaped.
   Routine proxy connection openings and closings, dashboard requests, assets,
   health checks and other requests are not logged. The status page still shows
   active connection details. Blocked attempts, errors, startup and administrative
   blocklist changes remain logged; proxy errors include the connection ID shown
-  in status. Error stacks are escaped inside the error field, not printed on
-  separate lines. Restrict log access and retention.
-  Every **five seconds**, `Gateway upstream throughput` reports
-  the `protocol` (`vless`, `vmess`, or `trojan`),
-  `gatewayToV2rayMbps` and `v2rayToGatewayMbps` in decimal megabits per second,
-  cumulative `gatewayToV2rayBytes` and `v2rayToGatewayBytes`, and the actual
-  `intervalSeconds` rounded to two decimal places for display. Rates use the
+  in status. Restrict log access and retention: snapshots include subscription
+  names and client IPs, but never credentials, subscription URLs, or destinations.
+  Every **five seconds**, one `Gateway connection snapshot` reports the number
+  of connected subscriptions, distinct known client IPs, and open tunnels.
+  A table groups open tunnels by subscription and client IP, showing the
+  subscription name captured when the connection opened, a short subscription
+  ID, protocols, tunnel count, and upload/download in decimal Mbps.
+  Renamed subscriptions use their new name on new connections.
+  A second table reports protocol totals (`vless`, `vmess`, `trojan`).
+  With no open tunnels, it explicitly says `No clients connected.`
+  New sockets awaiting their first sample are marked `collecting` or `pending`.
+  The actual sampling interval is displayed to two decimal places; rates use the
   unrounded interval. These use the **upstream socket counters**, not the
   client-facing dashboard meter. They include HTTP upgrade handshakes,
   WebSocket framing and failed upstream attempts, but exclude TCP/IP overhead.
-  Closed sockets remain included in totals; idle intervals report zero and
-  totals reset on restart. Sampling reads counters without inspecting packets
+  Closed sockets remain included in protocol rates for the interval in which
+  they closed, but not in the connected-client table; idle intervals report zero.
+  Sampling reads counters without inspecting packets
   or adding data listeners. These are observed traffic rates, not a capacity,
   latency or packet-loss test of the internal link.
   Gateway Docker logs rotate at **10 MB per file**, with **three files** retained.

@@ -99,6 +99,7 @@ export function trackConnection(transport, protocol, connection, {
   const countryCounter = countries.get(code);
   const client = clients.size < MAX_CLIENT_DETAILS ? {
     connectionId,
+    tunnelId,
     ip: ip ?? 'unknown',
     protocol,
     transport,
@@ -134,13 +135,17 @@ export function trackConnection(transport, protocol, connection, {
   };
 }
 
-export function snapshot(ipDetails) {
+export function snapshot(ipDetails, includeSubscriptions = false) {
   const totals = connectionTotals();
-  const activeClients = lodash.map([...clients], ([client, clientTraffic]) => ({
-    ...client,
-    traffic: clientTraffic.snapshot(),
-    elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
-  }));
+  const activeClients = lodash.map([...clients], ([client, clientTraffic]) => {
+    const { tunnelId, ...details } = client;
+    return {
+      ...details,
+      ...(includeSubscriptions ? { subscriptionId: tunnelId ?? null } : {}),
+      traffic: clientTraffic.snapshot(),
+      elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
+    };
+  });
   const groups = new Map();
   for (const client of activeClients) {
     if (!groups.has(client.ip)) {
@@ -185,8 +190,8 @@ export function snapshot(ipDetails) {
   };
 }
 
-export function statusSnapshot(blocklist, ipDetails) {
-  return { ...snapshot(ipDetails), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
+export function statusSnapshot(blocklist, ipDetails, admin = false) {
+  return { ...snapshot(ipDetails, admin), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
 }
 
 export async function usersSnapshot(accounts) {

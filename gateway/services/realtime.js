@@ -106,7 +106,7 @@ export function attachRealtime(server, { accounts, tunnels, blocklist, secureCoo
             socket.emit('resource-error', { resource, message: 'Administrator access is required' });
             continue;
           }
-          const data = resource === 'status' ? statusSnapshot(blocklist, ipDetails)
+          const data = resource === 'status' ? statusSnapshot(blocklist, ipDetails, user.admin)
             : resource === 'users' ? await usersSnapshot(accounts)
               : await connectionsSnapshot(tunnels);
           if (socket.connected && subscriptions.has(resource)) socket.emit('resource', { resource, data });

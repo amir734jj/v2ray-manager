@@ -87,7 +87,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
   function cacheAuthorization(row) {
     revokeAuthorization(row.id);
     if (stopping || !row.enabled || row.syncStatus !== 'applied') return;
-    authorizations.set(row.credential, { id: row.id, maxConcurrentIps: row.maxConcurrentIps });
+    authorizations.set(row.credential, { id: row.id, name: row.name, maxConcurrentIps: row.maxConcurrentIps });
     authorizationCredentials.set(row.id, row.credential);
   }
 
@@ -394,6 +394,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
             }
           } else if (action === 'rename') {
             await connections.update(row, { name: subscriptionName(body?.name) });
+            cacheAuthorization(row);
           } else if (action === 'limits') {
             const maxConcurrentIps = validateIpLimit(body?.maxConcurrentIps);
             revokeAuthorization(id);
