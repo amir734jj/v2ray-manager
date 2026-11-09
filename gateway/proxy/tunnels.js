@@ -1,35 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { isIP } from 'node:net';
 import { MAX_USER_AGENT_LENGTH, trackConnection } from '../services/status.js';
-import { normalizeIp } from '../services/blocklist.js';
+import { clientAddress } from '../services/client-ip.js';
 import { parseTunnelPath } from './paths.js';
 import { activeTunnelIps, trackTunnelSocket } from './sockets.js';
 
 export function createTunnelHandler({
-  tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders = false,
+  tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders = 'auto', trustedProxies = [],
 }) {
   function clientMetadata(request) {
     const { headers } = request;
-    const { remoteAddress } = request.socket;
-    let ip = remoteAddress ? normalizeIp(remoteAddress) : null;
-    let country = null;
-    if (trustCloudflareHeaders) {
-      const clientIp = headers['cf-connecting-ip'];
-      const clientCountry = headers['cf-ipcountry'];
-      if (typeof clientIp === 'string' && !clientIp.includes('%') && isIP(clientIp)) {
-        ip = normalizeIp(clientIp);
-        if (typeof clientCountry === 'string' && /^(?:[A-Z]{2}|T1)$/.test(clientCountry)) {
-          country = clientCountry;
-        } else if (clientCountry !== undefined) {
-          logger.warn('Gateway connection metadata: invalid CF-IPCountry ignored');
-        }
-      } else if (clientIp !== undefined) {
-        logger.warn('Gateway connection metadata: invalid CF-Connecting-IP ignored');
-      }
-    }
     return {
-      ip,
-      country: country && country !== 'XX' ? country : 'unknown',
+      ...clientAddress(request, { trustedProxies, trustCloudflareHeaders, logger }),
       userAgent: headers['user-agent']?.trim().slice(0, MAX_USER_AGENT_LENGTH) || 'Unknown',
     };
   }

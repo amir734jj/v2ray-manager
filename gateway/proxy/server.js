@@ -6,7 +6,7 @@ import { createTunnelHandler } from './tunnels.js';
 import { activeTunnelIps, disconnectTunnelSockets } from './sockets.js';
 import { logUpstreamTraffic } from './upstream-traffic.js';
 
-export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, trustCloudflareHeaders = false, logTraffic = true }) {
+export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, trustCloudflareHeaders = 'auto', trustedProxies = [], logTraffic = true }) {
   const routes = new Map(lodash.map(lodash.toPairs(ports), ([protocol, port]) => [
     `/${protocol}`, `http://${upstreamHost}:${parsePort(port, `/${protocol} upstream port`)}`,
   ]));
@@ -57,7 +57,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
     attach(server, { tunnels }) {
       if (logTraffic) stopUpstreamTraffic = logUpstreamTraffic(proxy, logger, routes.keys());
       server.on('upgrade', createTunnelHandler({
-        tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders,
+        tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders, trustedProxies,
       }));
       server.on('connection', socket => {
         sockets.set(socket, null);

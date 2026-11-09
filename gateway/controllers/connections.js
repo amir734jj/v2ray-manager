@@ -8,6 +8,10 @@ export function createConnectionsController({ tunnels, auth }) {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
     response.json(await tunnels.searchDestinations(request.query));
   });
+  router.post('/api/destinations/retention', auth.requireUser, auth.requireAdmin, sameOrigin, express.json({ limit: '2kb' }), async (request, response) => {
+    if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
+    response.json(await tunnels.setDestinationRetention(request.body?.hours));
+  });
   router.get('/api/connections', auth.requireUser, auth.requireAdmin, async (_request, response) => {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
     response.json(await connectionsSnapshot(tunnels));

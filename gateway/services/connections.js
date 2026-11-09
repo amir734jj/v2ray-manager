@@ -324,6 +324,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
           error: lodash.compact([reconciliationError, activityError]).join(' ') || null,
           coreStats: { ...coreStats },
           destinationStats: destinationMonitor.status(),
+          destinationRetentionHours: destinations.getRetentionHours(),
         };
       });
     },
@@ -354,7 +355,15 @@ export function createConnectionService({ connections, api, host, disconnect, li
             Number(last.lastSeen), last.connectionId, last.domain,
           ])).toString('base64url') : null,
           destinationStats: destinationMonitor.status(),
+          destinationRetentionHours: destinations.getRetentionHours(),
         };
+      });
+    },
+    setDestinationRetention(hours) {
+      return exclusive(async () => {
+        await destinations.setRetentionHours(hours);
+        onChange();
+        return { destinationRetentionHours: destinations.getRetentionHours() };
       });
     },
     create(name, maxConcurrentIps = 0) {

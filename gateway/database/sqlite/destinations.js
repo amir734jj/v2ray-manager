@@ -1,8 +1,9 @@
 import { setImmediate } from 'node:timers/promises';
 import { col, DataTypes, fn, Op, Transaction, where } from 'sequelize';
 import lodash from 'lodash';
+import createError from 'http-errors';
 
-const RETENTION_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 const WRITE_BATCH = 500;
 const PRUNE_INTERVAL_MS = 60 * 1000;
 
@@ -17,6 +18,16 @@ export async function createDestinations(database, clock = Date.now) {
     indexes: [{ fields: ['lastSeen'] }, { fields: ['connectionId', 'lastSeen'] }],
   });
   await Destination.sync();
+  const Settings = database.define('DestinationSettings', {
+    id: { type: DataTypes.INTEGER, primaryKey: true },
+    retentionHours: { type: DataTypes.INTEGER, allowNull: false },
+  }, {
+    tableName: 'gateway_destination_settings',
+    timestamps: false,
+  });
+  await Settings.sync();
+  const [settings] = await Settings.findOrCreate({ where: { id: 1 }, defaults: { retentionHours: 24 } });
+  let retentionHours = settings.retentionHours;
   let lastPrunedAt = -Infinity;
   let previousIds = null;
 
@@ -39,13 +50,24 @@ export async function createDestinations(database, clock = Date.now) {
   }
 
   return {
+    getRetentionHours() {
+      return retentionHours;
+    },
+    async setRetentionHours(hours) {
+      if (!Number.isSafeInteger(hours) || hours < 1 || !Number.isSafeInteger(hours * HOUR_MS)) {
+        throw createError(400, 'Domain retention must be a positive whole number of hours within the supported numeric range');
+      }
+      await Settings.update({ retentionHours: hours }, { where: { id: 1 } });
+      retentionHours = hours;
+      lastPrunedAt = -Infinity;
+    },
     async record(observations, ids) {
       if (!Array.isArray(observations) || !Array.isArray(ids)) {
         throw new TypeError('Destination observations and subscription IDs must be arrays');
       }
       const activeIds = new Set(ids);
       const now = clock();
-      const cutoff = now - RETENTION_MS;
+      const cutoff = now - retentionHours * HOUR_MS;
       const rows = lodash.filter(observations, row => activeIds.has(row.connectionId) && row.lastSeen > cutoff);
       for (const batch of lodash.chunk(rows, WRITE_BATCH)) {
         await database.transaction({ type: Transaction.TYPES.IMMEDIATE }, transaction => {
@@ -65,7 +87,7 @@ export async function createDestinations(database, clock = Date.now) {
     async list(id) {
       const rows = await Destination.findAll({
         attributes: ['domain', 'lastSeen'],
-        where: { connectionId: id, lastSeen: { [Op.gt]: clock() - RETENTION_MS } },
+        where: { connectionId: id, lastSeen: { [Op.gt]: clock() - retentionHours * HOUR_MS } },
         order: [['lastSeen', 'DESC'], ['domain', 'ASC']],
         limit: 50,
         raw: true,
@@ -81,7 +103,7 @@ export async function createDestinations(database, clock = Date.now) {
       if (!ids.length) return { rows: [], hasMore: false };
       const conditions = [
         { connectionId: { [Op.in]: ids } },
-        { lastSeen: { [Op.gt]: clock() - RETENTION_MS } },
+        { lastSeen: { [Op.gt]: clock() - retentionHours * HOUR_MS } },
       ];
       if (query) {
         conditions.push({

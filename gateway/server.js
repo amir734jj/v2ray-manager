@@ -7,15 +7,17 @@ import {
 import { createGatewayProxy } from './proxy';
 import { createGatewayApp } from './app.js';
 import { createDatabase, createResourceHistory } from './database';
+import { parseTrustedProxies } from './services/client-ip.js';
 
 const logger = createGatewayLogger();
 const ipDetails = createIpDetails({ logger, onChange: () => gatewayEvents.emit('status') });
 
 const listenPort = parsePort(process.env.GATEWAY_PORT ?? '53217', 'GATEWAY_PORT');
 const upstreamHost = process.env.V2RAY_UPSTREAM_HOST ?? 'v2ray';
-const trustCloudflareHeaders = process.env.GATEWAY_TRUST_CLOUDFLARE_HEADERS ?? 'false';
-if (!['true', 'false'].includes(trustCloudflareHeaders)) {
-  throw new Error('GATEWAY_TRUST_CLOUDFLARE_HEADERS must be true or false');
+const trustedProxies = parseTrustedProxies(process.env.GATEWAY_TRUSTED_PROXIES);
+const trustCloudflareHeaders = process.env.GATEWAY_TRUST_CLOUDFLARE_HEADERS ?? 'auto';
+if (!['auto', 'true', 'false'].includes(trustCloudflareHeaders)) {
+  throw new Error('GATEWAY_TRUST_CLOUDFLARE_HEADERS must be auto, true or false');
 }
 const secureCookies = process.env.GATEWAY_SECURE_COOKIES ?? 'true';
 if (!['true', 'false'].includes(secureCookies)) {
@@ -44,7 +46,8 @@ try {
     },
     blocklist: storedBlocklist,
     logger,
-    trustCloudflareHeaders: trustCloudflareHeaders === 'true',
+    trustCloudflareHeaders: trustCloudflareHeaders === 'auto' ? 'auto' : trustCloudflareHeaders === 'true',
+    trustedProxies,
     logTraffic: true,
   });
   tunnels = createConnectionService({

@@ -199,11 +199,36 @@ The administrator's **Subscriptions** page provides:
   until the active count drops below the new limit. Pausing or deleting releases
   the subscription's slots. Other subscriptions have independent limits.
 
+For Coolify/Traefik connections without Cloudflare, configure
+`GATEWAY_TRUSTED_PROXIES` with Traefik's gateway-network IP (or a narrowly scoped
+CIDR). It accepts a comma-separated list; empty means no forwarded-header trust.
+Malformed entries stop startup. The gateway walks `X-Forwarded-For` from right
+to left through trusted proxies, stopping at the first untrusted address. Invalid
+forwarded addresses are logged and ignored. Requests from other peers cannot
+override their socket IP. Use the same resolved address for status, connected IPs,
+blocklist enforcement, and concurrent-IP limits. Existing tunnels retain the IP
+captured at connection time; reconnect them after changing this setting.
+
+Keep the gateway port private. Configure Traefik to discard untrusted incoming
+forwarded headers; do not enable `forwardedHeaders.insecure`. Trust only actual
+proxy addresses, not all private networks. Docker-assigned proxy IPs can change
+after network recreation, so recheck the configured address on redeploy.
+`GATEWAY_TRUST_CLOUDFLARE_HEADERS` defaults to `auto`: `CF-Connecting-IP` and
+`CF-IPCountry` are accepted only if the socket peer, or source resolved through
+trusted proxies, is in Cloudflare's published IPv4/IPv6 ranges. Otherwise the
+forwarded or socket IP is used, even if Cloudflare headers are present.
+Keep those ranges in `gateway/services/client-ip.js` current.
+`false` disables Cloudflare metadata. `true` retains legacy Cloudflare-only
+trust when no trusted proxies are configured, and in that case still requires
+restricting origin access to Cloudflare and trusted proxies. Existing deployments
+with an explicit `false` must switch to `auto` to enable automatic detection.
+
 IP limits are not physical-device limits: devices behind NAT share a slot,
 and IPv4/IPv6 or changing addresses can use multiple slots for one device.
-Client IPs come from the peer socket, or validated `CF-Connecting-IP` when
-`GATEWAY_TRUST_CLOUDFLARE_HEADERS=true`. Behind Cloudflare, enable that setting
-only with origin access restricted to trusted proxies; otherwise the limit
+Client IPs come from the peer socket, trusted `X-Forwarded-For`, or validated
+`CF-Connecting-IP` when Cloudflare is detected, as described above.
+Behind Cloudflare, use a correctly configured proxy
+trust boundary; otherwise the limit
 counts proxy IPs or can be bypassed with forged headers. Limited subscriptions
 reject tunnels if no client IP is available. The limit is enforced at the gateway,
 not inside V2Ray; keep direct V2Ray ports inaccessible.
@@ -325,12 +350,24 @@ subscription/domain pairs, not just those card previews. Its columns are
 case-insensitive substrings of a domain or the current subscription name.
 Previous/Next browse 50-row pages; Search and Refresh return to the newest page.
 The page fetches only on those actions, not per keystroke or on a polling timer.
-Retention remains 24 hours and the per-subscription previews are unchanged.
+Administrators can change **Domain retention (hours)** on this page. The setting
+is a positive whole number, defaults to 24, applies to all subscriptions and
+previews, and persists across gateway restarts in `gateway_destination_settings`
+in `metrics.sqlite`. Resource chart retention is unchanged.
+
+`POST /api/destinations/retention` accepts JSON `{ "hours": 48 }` and returns
+`{ "destinationRetentionHours": 48 }`. It requires an active administrator and
+a same-origin request. Invalid, missing, fractional, non-positive, or numerically
+unsafe values return HTTP 400. Changes affect reads immediately and trigger
+expiry cleanup on the next collection cycle. Shortening retention expires older
+history; increasing it cannot restore history already deleted.
 
 `GET /api/destinations?q=<search>&cursor=<nextCursor>` requires an active
 administrator. Both parameters are optional; `q` is limited to 253 characters.
 The response contains `destinations` with `{ subscriptionId, subscriptionName,
-domain, lastSeen }`, `nextCursor` (null at the end), and `destinationStats`.
+domain, lastSeen }`, `nextCursor` (null at the end), `destinationStats`, and
+`destinationRetentionHours`. Connection snapshots also include
+`destinationRetentionHours` so subscription previews display the current window.
 Pagination uses a validated opaque cursor over last-observed time, subscription
 ID, and domain rather than loading the full history, counting all matches, or
 using growing SQL offsets. Each query returns at most 51 rows to determine
@@ -372,7 +409,7 @@ so other work can run and acquire the SQLite writer. Idle cycles between cleanup
 passes perform no destination writes. Expiry cleanup runs at most once per minute; orphan cleanup
 runs only when the subscription ID set changes. The
 `gateway_subscription_destinations` table lives in the existing `metrics.sqlite`.
-An entry expires 24 hours after its last observation; reads exclude expired rows,
+An entry expires the configured number of hours after its last observation; reads exclude expired rows,
 and cleanup deletes them and orphaned subscriptions' rows.
 Deletion of a subscription removes its history. Pause, credential rotation, and
 Reset traffic totals do not erase domain history. Saved history survives restarts
@@ -746,11 +783,15 @@ The page and JSON expose full client IPs and User-Agents to active management
 accounts. Limit account approvals and restrict management routes separately
 from tunnel paths when appropriate. Credentials are not shown.
 
-For country counters and real client IP logs, enable Cloudflare IP Geolocation,
-preserve `CF-Connecting-IP` / `CF-IPCountry`, and set
-`GATEWAY_TRUST_CLOUDFLARE_HEADERS=true`. Only enable this when origin access is
-restricted to Cloudflare and trusted proxies; otherwise headers can be forged.
-By default, country is Unknown and logs use the socket peer IP. Restrict access
+For country counters and real client IP logs, enable Cloudflare IP Geolocation
+and preserve `CF-Connecting-IP` / `CF-IPCountry`. The default
+`GATEWAY_TRUST_CLOUDFLARE_HEADERS=auto` detects Cloudflare from its source IP ranges,
+not merely the presence of a header.
+For mixed Cloudflare and direct traffic through Traefik, configure
+`GATEWAY_TRUSTED_PROXIES` as described under concurrent-IP limits. Direct traffic
+then uses the forwarded client IP without trusting spoofed Cloudflare metadata.
+Without verified Cloudflare metadata, country is Unknown and logs use the
+trusted forwarded client IP or socket peer IP. Restrict access
 to IP logs and configure retention.
 
 If v2rayNG connects but browsing fails, ensure its local SOCKS port matches

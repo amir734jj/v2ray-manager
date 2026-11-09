@@ -94,19 +94,35 @@ Traffic not sampled before a V2Ray reset cannot be recovered.
 Redeploy `init` and V2Ray once to enable
 the StatsService and user counters.
 
-Subscription cards also show **Recent destinations (24 hours)**: the latest 50
+Subscription cards also show **Recent destinations**: the latest 50
 observed domains and their last observation times. Domains are attributed to
-authenticated V2Ray credentials, saved in SQLite, and removed after 24 hours
-without another observation. Only administrators can view them. Background apps
+authenticated V2Ray credentials, saved in SQLite, and removed after the configured
+retention period without another observation (24 hours by default). Administrators
+can save a positive whole number of hours under **Domain retention (hours)** on
+the **Destinations** tab. This applies to all subscriptions and survives restarts.
+Shortening retention expires older history; increasing it cannot restore deleted
+history. Only administrators can view domains or change retention. Background apps
 also generate connections; this is not browser history or proof of a page visit.
 Inform subscribers about destination monitoring. Rebuild/redeploy **init, V2Ray,
 and gateway** to enable the required `LoggerService` and sniffed-destination
 logging policy. Collection begins after deployment; old activity is not imported.
 
 The administrator-only **Destinations** tab searches all saved domains from the
-last 24 hours by domain or subscription name. It shows the subscription and last
+configured retention window by domain or subscription name. It shows the subscription and last
 observation time, with 50 rows per page and no 50-record history cap. Search and
 pagination run on the server; use **Refresh** to return to the newest results.
+
+For connections through Coolify/Traefik without Cloudflare, set
+`GATEWAY_TRUSTED_PROXIES` to Traefik's IP on the gateway's Docker network
+(comma-separated IPs/CIDRs). The gateway then reads `X-Forwarded-For` from
+that proxy, stopping at the first untrusted address from the right. Leave it
+empty for direct socket connections. Never trust all addresses or an entire
+shared network unnecessarily. Keep the gateway port private and have Traefik
+sanitize incoming forwarded headers. Cloudflare detection is automatic by default
+(`GATEWAY_TRUST_CLOUDFLARE_HEADERS=auto`): use `CF-Connecting-IP` and `CF-IPCountry`
+when the socket peer, or source resolved through trusted proxies, belongs to
+Cloudflare's published IP ranges. Otherwise use the forwarded or direct socket IP.
+The presence of Cloudflare headers alone does not establish trust.
 
 The deployment no longer accepts `V2RAY_UUID` or shared FTP profiles. Existing
 clients need new private subscriptions after upgrading. Remove old FTP exports
@@ -124,9 +140,11 @@ The SQLite upgrade starts fresh: old LevelDB files are left untouched but are no
 imported. Charts start empty; traffic totals start from the currently available
 V2Ray counters. PostgreSQL accounts and subscriptions are unchanged.
 
-The administrator can block IPs from the dashboard. Enable
-`GATEWAY_TRUST_CLOUDFLARE_HEADERS=true` only when origin access is restricted
-to Cloudflare and trusted proxies; otherwise client IP headers can be forged.
+The administrator can block IPs from the dashboard.
+`GATEWAY_TRUST_CLOUDFLARE_HEADERS=false` disables Cloudflare metadata.
+The explicit `true` setting preserves legacy Cloudflare-only trust when no
+`GATEWAY_TRUSTED_PROXIES` are configured; use it only with origin access restricted
+to Cloudflare and trusted proxies, or client IP headers can be forged.
 
 The authenticated endpoints `/api/status.json` and
 `/api/resource-history?range=1h` expose status and chart data. `/healthz`

@@ -165,7 +165,7 @@ function SubscriptionList() {
               </ul> : <p class="text-body-secondary mb-0">No IPs currently connected.</p>}
             </div>
             <details class="mt-3">
-              <summary class="h6">Recent destinations (24 hours)</summary>
+              <summary class="h6">Recent destinations ({data.destinationRetentionHours} hours)</summary>
               <p class="small text-body-secondary mt-2">Latest 50 observed domains, including background apps; not page URLs or proof of a visit.</p>
               {connection.recentDestinations?.length ? <ul class="list-unstyled mb-0"
                 aria-label={`Recent destinations for ${connection.name}`}>
@@ -177,7 +177,7 @@ function SubscriptionList() {
               </ul> : <p class="text-body-secondary mb-0">
                 {data.destinationStats?.status === 'error' ? 'Domain collection is unavailable or incomplete.'
                   : data.destinationStats?.status === 'loading' ? 'Waiting for the V2Ray destination stream...'
-                    : 'No domains observed in the last 24 hours.'}
+                    : `No domains observed in the last ${data.destinationRetentionHours} hours.`}
               </p>}
             </details>
             <IpLimitForm connection={connection} busy={busy} onSave={perform} />
