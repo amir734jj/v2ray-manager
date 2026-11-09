@@ -16,6 +16,10 @@ const isPrivateProxy = proxyaddr.compile('uniquelocal');
 const trustNone = proxyaddr.compile([]);
 
 export async function discoverTrustedProxies(logger) {
+  const proxyHosts = ['coolify-proxy'];
+  if (process.env.COOLIFY_RESOURCE_UUID) {
+    proxyHosts.push(`coolify-proxy.${process.env.COOLIFY_RESOURCE_UUID}`);
+  }
   let trustProxy = trustNone;
   let timer;
   let stopped = false;
@@ -24,13 +28,13 @@ export async function discoverTrustedProxies(logger) {
   async function refresh() {
     let records;
     try {
-      records = await dns.lookup('coolify-proxy', { all: true });
+      records = (await Promise.all(proxyHosts.map(host => dns.lookup(host, { all: true })))).flat();
     } catch (error) {
       if (!['ENOTFOUND', 'ENODATA', 'EAI_AGAIN', 'ESERVFAIL', 'ETIMEOUT', 'ECONNREFUSED'].includes(error.code)) throw error;
       if (stopped) return;
       trustProxy = trustNone;
       if (previousState !== error.code) {
-        logger.warn({ proxyHost: 'coolify-proxy', errorCode: error.code },
+        logger.warn({ proxyHosts, errorCode: error.code },
           'Reverse proxy discovery unavailable; forwarded IP headers are ignored until Docker DNS recovers');
       }
       previousState = error.code;
@@ -42,7 +46,7 @@ export async function discoverTrustedProxies(logger) {
     trustProxy = proxyaddr.compile(addresses);
     const state = addresses.join(',');
     if (previousState !== state) {
-      if (addresses.length) logger.info({ proxyHost: 'coolify-proxy', addresses }, 'Discovered trusted reverse proxy');
+      if (addresses.length) logger.info({ proxyHosts, addresses }, 'Discovered trusted reverse proxy');
       else logger.warn('Reverse proxy DNS returned no private addresses; forwarded IP headers are ignored');
     }
     previousState = state;

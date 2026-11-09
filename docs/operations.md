@@ -202,6 +202,11 @@ The administrator's **Subscriptions** page provides:
 
 The gateway automatically resolves Coolify's `coolify-proxy` service through
 Docker DNS at startup and every 30 seconds after each lookup completes.
+It resolves both `coolify-proxy` and, when Coolify supplies `COOLIFY_RESOURCE_UUID`,
+`coolify-proxy.<resource UUID>`. Docker's unqualified lookup may return only the
+shared Coolify network's address even when Traefik connects over the application
+network; the network-scoped lookup discovers that additional address without a
+manual setting or access to the Docker socket.
 Only private IPv4 addresses and IPv6 unique-local addresses returned for that
 service are trusted, as individual hosts, never an entire private subnet.
 No proxy-address environment variable or hardcoded container IP is used.
@@ -216,7 +221,7 @@ to left through trusted proxies, stopping at the first untrusted address. Invali
 forwarded addresses are logged and ignored. Requests from other peers cannot
 override their socket IP. Use the same resolved address for status, connected IPs,
 blocklist enforcement, and concurrent-IP limits. Existing tunnels retain the IP
-captured at connection time; reconnect them after changing this setting.
+captured at connection time; reconnect them after deploying an IP-discovery fix.
 
 Keep the gateway port private. Configure Traefik to discard untrusted incoming
 forwarded headers; do not enable `forwardedHeaders.insecure`. Trust only actual
@@ -726,7 +731,9 @@ configs separately; existing managed links remain valid.
   names and client IPs, but never credentials, subscription URLs, or destinations.
   Every **five seconds**, one `Gateway connection snapshot` reports the number
   of connected subscriptions, distinct known client IPs, and open tunnels.
-  Tables are rendered by `cli-table3`, with terminal colors disabled.
+  Tables are rendered by `cli-table3` as borderless, space-separated columns,
+  without terminal colors or box-drawing characters, so Coolify's per-line
+  timestamps do not break decorative borders.
   A table groups open tunnels by subscription and client IP, showing the
   subscription name captured when the connection opened, protocols, tunnel count,
   and upload/download in decimal Mbps. Internal subscription IDs are not displayed.

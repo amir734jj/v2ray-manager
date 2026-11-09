@@ -8,7 +8,16 @@ function formatRate(bytesPerSecond) {
 }
 
 function table(headings, rows) {
-  const output = new Table({ head: headings, style: { head: [], border: [] } });
+  const output = new Table({
+    head: headings,
+    chars: {
+      top: '', 'top-mid': '', 'top-left': '', 'top-right': '',
+      bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
+      left: '', 'left-mid': '', mid: '', 'mid-mid': '',
+      right: '', 'right-mid': '', middle: '',
+    },
+    style: { head: [], border: [], compact: true, 'padding-left': 0, 'padding-right': 2 },
+  });
   output.push(...rows);
   return output.toString();
 }

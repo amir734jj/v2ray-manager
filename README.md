@@ -114,7 +114,10 @@ pagination run on the server; use **Refresh** to return to the newest results.
 
 The gateway automatically discovers Coolify's `coolify-proxy` container through
 Docker DNS at startup and refreshes its addresses every 30 seconds. No proxy-IP
-configuration or hardcoded container address is needed. Only that service's
+configuration or hardcoded container address is needed. Coolify's automatically
+injected `COOLIFY_RESOURCE_UUID` also scopes a lookup to the application network,
+so both shared-network and application-network proxy addresses are discovered.
+Only that service's
 private IPv4/IPv6 addresses are trusted, not every private IP or subnet.
 The gateway reads `X-Forwarded-For` from the discovered proxy, stopping at the
 first untrusted address from the right. Discovery failures are logged and clear
