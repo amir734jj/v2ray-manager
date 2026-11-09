@@ -731,9 +731,10 @@ configs separately; existing managed links remain valid.
   names and client IPs, but never credentials, subscription URLs, or destinations.
   Every **five seconds**, one `Gateway connection snapshot` reports the number
   of connected subscriptions, distinct known client IPs, and open tunnels.
-  Tables are rendered by `cli-table3` as borderless, space-separated columns,
-  without terminal colors or box-drawing characters, so Coolify's per-line
-  timestamps do not break decorative borders.
+  Tables are rendered by `cli-table3` as space-separated columns with ASCII
+  horizontal rules above and below each heading, but no body-row borders,
+  terminal colors, or box-drawing characters. Each snapshot ends with a blank
+  line to separate it from subsequent log records.
   A table groups open tunnels by subscription and client IP, showing the
   subscription name captured when the connection opened, protocols, tunnel count,
   and upload/download in decimal Mbps. Internal subscription IDs are not displayed.

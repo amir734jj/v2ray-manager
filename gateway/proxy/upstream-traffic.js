@@ -11,9 +11,9 @@ function table(headings, rows) {
   const output = new Table({
     head: headings,
     chars: {
-      top: '', 'top-mid': '', 'top-left': '', 'top-right': '',
+      top: '-', 'top-mid': '', 'top-left': '', 'top-right': '',
       bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
-      left: '', 'left-mid': '', mid: '', 'mid-mid': '',
+      left: '', 'left-mid': '', mid: '-', 'mid-mid': '',
       right: '', 'right-mid': '', middle: '',
     },
     style: { head: [], border: [], compact: true, 'padding-left': 0, 'padding-right': 2 },
@@ -87,6 +87,7 @@ export function logUpstreamTraffic(proxy, logger, paths, { tunnelSockets, wsConn
       table(['Protocol', 'Tunnels', 'Upload', 'Download'], protocols.map(row => [
         row.protocol, String(row.tunnels), formatRate(row.uploadBytesPerSecond), formatRate(row.downloadBytesPerSecond),
       ])),
+      '',
     ].join('\n'));
   }, 5000);
   timer.unref();
