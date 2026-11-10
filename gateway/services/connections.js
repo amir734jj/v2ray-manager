@@ -58,7 +58,7 @@ export function subscriptionContent(connection, host, client = '') {
   return Buffer.from(links.join('\n') + '\n').toString('base64');
 }
 
-export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, subscriptionActivity, destinations, activitySnapshot, logger, onChange = () => {} }) {
+export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, subscriptionActivity, destinations, activitySnapshot, logger, onChange: notifyChange = () => {} }) {
   validateHost(host);
   let queue = Promise.resolve();
   let stopping = false;
@@ -77,9 +77,37 @@ export function createConnectionService({ connections, api, host, disconnect, li
   const authorizationCredentials = new Map();
   let authorizationReady = false;
   let shadowsocksPrepared = false;
+  let listingCache = null;
+  let pendingListing = null;
+  let listingVersion = 0;
   const destinationMonitor = createDestinationMonitor({
     api, store: destinations, listIds: async () => lodash.map(await listRows(), 'id'), logger, onChange,
   });
+
+  function onChange() {
+    listingCache = null;
+    listingVersion++;
+    notifyChange();
+  }
+
+  async function databaseListing() {
+    if (listingCache && listingCache.expiresAt > Date.now()) return listingCache.value;
+    if (pendingListing?.version === listingVersion) return pendingListing.promise;
+    const request = { version: listingVersion };
+    request.promise = (async () => {
+      const rows = await listRows();
+      const recentDestinations = await destinations.listMany(lodash.map(rows, 'id'));
+      const value = { rows, recentDestinations };
+      if (request.version === listingVersion) listingCache = { value, expiresAt: Date.now() + 5000 };
+      return value;
+    })();
+    pendingListing = request;
+    try {
+      return await request.promise;
+    } finally {
+      if (pendingListing === request) pendingListing = null;
+    }
+  }
 
   function revokeAuthorization(id) {
     const credential = authorizationCredentials.get(id);
@@ -167,6 +195,8 @@ export function createConnectionService({ connections, api, host, disconnect, li
       for (const row of rows) await api.remove('shadowsocks', row);
       shadowsocksPrepared = true;
     }
+    const probe = rows.find(row => row.enabled && appliedCredentials.get(row.id) === row.credential);
+    if (probe) await api.probe(probe);
     for (const [id, credential] of [...authorizationCredentials]) {
       const row = desired.get(id);
       if (!row || row.credential !== credential || !row.enabled || row.syncStatus !== 'applied') {
@@ -315,9 +345,9 @@ export function createConnectionService({ connections, api, host, disconnect, li
     },
     async list() {
       return guarded(async () => {
-        const rows = await listRows();
+        const { rows, recentDestinations } = await databaseListing();
         return {
-          connections: await Promise.all(lodash.map(rows, async row => {
+          connections: lodash.map(rows, row => {
             const connectedIps = listIps(row.id);
             return {
               ...publicConnection(row),
@@ -326,9 +356,9 @@ export function createConnectionService({ connections, api, host, disconnect, li
               savedActivity: subscriptionActivity.snapshot(row.id),
               subscriptionUrl: row.subscriptionToken ? subscriptionUrl(row.subscriptionToken) : null,
               coreTraffic: coreStats.sampledAt === null ? null : coreCounters.get(row.id) ?? { uploadBytes: '0', downloadBytes: '0' },
-              recentDestinations: await destinations.list(row.id),
+              recentDestinations: recentDestinations.get(row.id),
             };
-          })),
+          }),
           error: lodash.compact([reconciliationError, activityError]).join(' ') || null,
           coreStats: { ...coreStats },
           destinationStats: destinationMonitor.status(),
@@ -426,6 +456,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
               await trafficUsage.remove(id);
               await subscriptionActivity.remove(id);
               await destinationMonitor.remove(id);
+              api.forget(id);
               appliedCredentials.delete(id);
               coreCounters.delete(id);
             }

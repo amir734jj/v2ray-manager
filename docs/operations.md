@@ -759,12 +759,18 @@ configs separately; existing managed links remain valid.
   blocklist changes remain logged; proxy errors include the connection ID shown
   in status. Restrict log access and retention: snapshots include subscription
   names and client IPs, but never credentials, subscription URLs, or destinations.
-  Every **five seconds**, one `Gateway connection snapshot` reports the number
+  Every **60 seconds**, one `Gateway connection snapshot` reports the number
   of connected subscriptions, distinct known client IPs, and open tunnels.
+  Log rates average over this interval; dashboard and resource sampling remain
+  on their independent five-second cadence.
   Tables are rendered by `cli-table3` as space-separated columns with ASCII
   horizontal rules above and below each heading, but no body-row borders,
   terminal colors, or box-drawing characters. Each snapshot ends with a blank
   line to separate it from subsequent log records.
+  Table sorting and layout run in a worker thread, not on the proxy event loop.
+  The formatter allows one in-flight and one latest pending snapshot; if it falls
+  behind, intermediate snapshots are coalesced with a warning instead of growing
+  an unbounded queue. Worker failures are logged and retried on the next sample.
   A table groups open tunnels by subscription and client IP, showing the
   subscription name captured when the connection opened, protocols, tunnel count,
   and upload/download in decimal Mbps. Internal subscription IDs are not displayed.
@@ -782,6 +788,30 @@ configs separately; existing managed links remain valid.
   or adding data listeners. These are observed traffic rates, not a capacity,
   latency or packet-loss test of the internal link.
   Gateway Docker logs rotate at **10 MB per file**, with **three files** retained.
+
+### Proxy background overhead
+
+Tunnel authorization and byte forwarding do not query PostgreSQL or SQLite.
+Dashboard subscription rows and recent destinations are read once per shared
+five-second cache window, with Sequelize grouped-limit queries retaining the same
+50 most recent domains per subscription. Reads batch up to 500 subscriptions per
+query to respect SQLite's compound-query limit. Mutations and background updates
+invalidate this cache; simultaneous viewers share in-flight reads. Connected IPs,
+traffic, activity, errors, and synchronization state are computed on every
+snapshot, so live socket changes are not delayed by database caching.
+
+Subscription activity writes include only changed rows and removed IDs. Traffic
+checkpoints skip database I/O when counters and core boot identity are unchanged;
+the latest sample metadata remains current in memory. Restart/reset detection
+and byte accumulation are unchanged. Resource samples retain their five-second
+cadence, with expired resource rows pruned at most once per minute.
+
+Every reconciliation still reads desired subscriptions from PostgreSQL. One
+previously applied, enabled VLESS user is probed with a real AddUser operation.
+An unexpectedly missing user invalidates cached core state and recreates all
+enabled users and Shadowsocks listeners. Otherwise, unchanged additions/removals
+are cached; credential changes, pause/resume, and gateway-only restarts retain
+their normal synchronization and fail-closed authorization behavior.
 
 ### IP blocklist
 

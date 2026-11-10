@@ -43,6 +43,8 @@ export function createV2rayApi(address) {
   const statsClient = new StatsClient(address, grpc.credentials.createInsecure());
   const loggerClient = new LoggerClient(address, grpc.credentials.createInsecure());
   const shadowsocks = new Map();
+  const users = new Map();
+  const removedShadowsocks = new Set();
   function handlerCall(method, request, expectedMessage) {
     return new Promise((resolve, reject) => {
       client[method](request, { deadline: Date.now() + 5000 }, error => {
@@ -108,8 +110,34 @@ export function createV2rayApi(address) {
     });
     state.credential = connection.credential;
     state.applied = true;
+    removedShadowsocks.delete(connection.id);
   }
+
+  async function addUser(protocol, connection) {
+    const email = `connection-${connection.id}`;
+    return alter(protocol, 'AddUserOperation', {
+      user: {
+        email,
+        account: typedMessage(`v2ray.core.proxy.${protocol}.Account`,
+          encode('Credential', { value: connection.credential })),
+      },
+    }, `proxy/${protocol}${protocol === 'vmess' ? '/inbound' : ''}: User ${email} already exists.`);
+  }
+
   return {
+    async probe(connection) {
+      // One real AddUser probes the core's user state even when uptime is ambiguous.
+      if (await addUser('vless', connection)) {
+        users.clear();
+        removedShadowsocks.clear();
+        for (const state of shadowsocks.values()) state.applied = false;
+      }
+      users.set(`vless:${connection.id}`, connection.credential);
+    },
+    forget(id) {
+      for (const protocol of protocols) users.delete(`${protocol}:${id}`);
+      removedShadowsocks.delete(id);
+    },
     followLogs() {
       return loggerClient.followLog({});
     },
@@ -119,14 +147,10 @@ export function createV2rayApi(address) {
     },
     async add(protocol, connection) {
       if (protocol === 'shadowsocks') return addShadowsocks(connection);
-      const email = `connection-${connection.id}`;
-      const added = await alter(protocol, 'AddUserOperation', {
-        user: {
-          email,
-          account: typedMessage(`v2ray.core.proxy.${protocol}.Account`,
-            encode('Credential', { value: connection.credential })),
-        },
-      }, `proxy/${protocol}${protocol === 'vmess' ? '/inbound' : ''}: User ${email} already exists.`);
+      const key = `${protocol}:${connection.id}`;
+      if (users.get(key) === connection.credential) return;
+      const added = await addUser(protocol, connection);
+      users.set(key, connection.credential);
       // Fresh VLESS users also identify a restarted core with no dynamic inbounds.
       if (added && protocol === 'vless') {
         const state = shadowsocks.get(connection.id);
@@ -135,13 +159,18 @@ export function createV2rayApi(address) {
     },
     async remove(protocol, connection) {
       if (protocol === 'shadowsocks') {
+        if (removedShadowsocks.has(connection.id)) return;
         await handlerCall('removeInbound', { tag: `shadowsocks-${connection.id}` }, missingInbound);
         shadowsocks.delete(connection.id);
+        removedShadowsocks.add(connection.id);
         return;
       }
+      const key = `${protocol}:${connection.id}`;
+      if (users.has(key) && users.get(key) === null) return;
       const email = `connection-${connection.id}`;
-      return alter(protocol, 'RemoveUserOperation', { email },
+      await alter(protocol, 'RemoveUserOperation', { email },
         `proxy/${protocol}${protocol === 'vmess' ? '/inbound' : ''}: User ${email} not found.`);
+      users.set(key, null);
     },
     async stats() {
       const beforeStart = Date.now();

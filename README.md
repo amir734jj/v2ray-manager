@@ -174,12 +174,18 @@ The administrator can block IPs from the dashboard.
 The `true` setting also requires a verified Cloudflare source; merely sending
 Cloudflare headers cannot override a direct client's IP.
 
-Gateway logs are readable plain text. Every five seconds, a connection snapshot
+Gateway logs are readable plain text. Every 60 seconds, a connection snapshot
 lists connected subscriptions and client IPs, protocols, open tunnels, and
 upload/download Mbps, followed by protocol totals. Errors retain readable
 details and stacks rather than inline JSON. Logs contain subscription names
 and IPs; restrict access and retention. Credentials and subscription URLs are
 not included in snapshots.
+
+Dashboard database reads are batched and shared across viewers; live socket and
+traffic state is still computed on every update. Log-table layout runs in a
+worker rather than blocking proxy I/O. Unchanged subscription activity and
+traffic checkpoints skip SQLite writes, and core reconciliation uses one
+existing VLESS account as a restart probe instead of re-adding every user.
 
 The authenticated endpoints `/api/status.json` and
 `/api/resource-history?range=1h` expose status and chart data. `/healthz`

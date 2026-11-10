@@ -4,6 +4,7 @@ import lodash from 'lodash';
 import createError from 'http-errors';
 
 const HOUR_MS = 60 * 60 * 1000;
+const READ_BATCH = 500;
 const WRITE_BATCH = 500;
 const PRUNE_INTERVAL_MS = 60 * 1000;
 
@@ -49,7 +50,30 @@ export async function createDestinations(database, clock = Date.now) {
     } while (count === WRITE_BATCH);
   }
 
+  async function listMany(ids) {
+    if (!Array.isArray(ids)) throw new TypeError('Subscription IDs must be an array');
+    const grouped = new Map(ids.map(id => [id, []]));
+    const cutoff = clock() - retentionHours * HOUR_MS;
+    // SQLite limits a compound SELECT to 500 branches.
+    for (const batch of lodash.chunk([...grouped.keys()], READ_BATCH)) {
+      const rows = await Destination.findAll({
+        attributes: ['connectionId', 'domain', 'lastSeen'],
+        where: { lastSeen: { [Op.gt]: cutoff } },
+        groupedLimit: { limit: 50, on: 'connectionId', values: batch },
+        order: [['lastSeen', 'DESC'], ['domain', 'ASC']],
+        raw: true,
+      });
+      for (const row of rows) grouped.get(row.connectionId).push(row);
+    }
+    return new Map([...grouped].map(([id, rows]) => [id,
+      lodash.orderBy(rows, [row => Number(row.lastSeen), 'domain'], ['desc', 'asc']).map(row => ({
+        domain: row.domain, lastSeen: new Date(Number(row.lastSeen)).toISOString(),
+      })),
+    ]));
+  }
+
   return {
+    listMany,
     getRetentionHours() {
       return retentionHours;
     },
@@ -85,16 +109,7 @@ export async function createDestinations(database, clock = Date.now) {
       }
     },
     async list(id) {
-      const rows = await Destination.findAll({
-        attributes: ['domain', 'lastSeen'],
-        where: { connectionId: id, lastSeen: { [Op.gt]: clock() - retentionHours * HOUR_MS } },
-        order: [['lastSeen', 'DESC'], ['domain', 'ASC']],
-        limit: 50,
-        raw: true,
-      });
-      return lodash.map(rows, row => ({
-        domain: row.domain, lastSeen: new Date(Number(row.lastSeen)).toISOString(),
-      }));
+      return (await listMany([id])).get(id);
     },
     async search({ ids, matchingIds, query, after }) {
       if (!Array.isArray(ids) || !Array.isArray(matchingIds)) {

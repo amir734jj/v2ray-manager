@@ -29,18 +29,22 @@ export async function createSubscriptionActivity(database) {
           connectedSince: connectedSince ?? previous?.connectedSince ?? null,
         };
       });
+      const next = new Map(rows.map(row => [row.id, row]));
+      const changed = rows.filter(row => {
+        const previous = saved.get(row.id);
+        return !previous || previous.lastTrafficAt !== row.lastTrafficAt || previous.connectedSince !== row.connectedSince;
+      });
+      const removed = [...saved.keys()].filter(id => !next.has(id));
+      if (!changed.length && !removed.length) return;
       await database.transaction(async transaction => {
-        if (rows.length) {
-          await Activity.bulkCreate(rows, {
+        if (changed.length) {
+          await Activity.bulkCreate(changed, {
             updateOnDuplicate: ['lastTrafficAt', 'connectedSince'], transaction,
           });
         }
-        await Activity.destroy({
-          where: rows.length ? { id: { [Op.notIn]: lodash.map(rows, 'id') } } : {},
-          transaction,
-        });
+        if (removed.length) await Activity.destroy({ where: { id: { [Op.in]: removed } }, transaction });
       });
-      saved = new Map(lodash.map(rows, row => [row.id, row]));
+      saved = next;
     },
     async remove(id) {
       await Activity.destroy({ where: { id } });

@@ -1,30 +1,61 @@
 import lodash from 'lodash';
-import Table from 'cli-table3';
+import { Worker } from 'node:worker_threads';
 import { createTrafficMeter } from '../services/traffic.js';
 import { formatLogText } from '../services/logger.js';
-
-function formatRate(bytesPerSecond) {
-  return bytesPerSecond === null ? 'collecting' : `${(bytesPerSecond * 8 / 1e6).toFixed(3)} Mbps`;
-}
-
-function table(headings, rows) {
-  const output = new Table({
-    head: headings,
-    chars: {
-      top: '-', 'top-mid': '', 'top-left': '', 'top-right': '',
-      bottom: '', 'bottom-mid': '', 'bottom-left': '', 'bottom-right': '',
-      left: '', 'left-mid': '', mid: '-', 'mid-mid': '',
-      right: '', 'right-mid': '', middle: '',
-    },
-    style: { head: [], border: [], compact: true, 'padding-left': 0, 'padding-right': 2 },
-  });
-  output.push(...rows);
-  return output.toString();
-}
 
 export function logUpstreamTraffic(proxy, logger, paths, { tunnelSockets, wsConnections }) {
   const meters = new Map(lodash.map([...paths], path => [path, createTrafficMeter({ upstream: true })]));
   const measurements = new WeakMap();
+  let worker = null;
+  let formatting = false;
+  let pendingSnapshot = null;
+  let lagging = false;
+  let stopped = false;
+
+  function workerFailed(instance, error) {
+    if (worker !== instance) return;
+    worker = null;
+    formatting = false;
+    pendingSnapshot = null;
+    logger.error({ err: error }, 'Connection snapshot formatter failed; retrying on the next sample');
+  }
+
+  function format(snapshot) {
+    if (formatting) {
+      if (pendingSnapshot && !lagging) {
+        logger.warn('Connection snapshot formatter is behind; intermediate snapshots are being coalesced');
+        lagging = true;
+      }
+      pendingSnapshot = snapshot;
+      return;
+    }
+    try {
+      if (!worker) {
+        const instance = new Worker(new URL('./traffic-snapshot-worker.js', import.meta.url));
+        worker = instance;
+        instance.on('message', message => {
+          if (worker !== instance || stopped) return;
+          formatting = false;
+          logger.info(message);
+          const next = pendingSnapshot;
+          pendingSnapshot = null;
+          if (next) format(next);
+          else lagging = false;
+        });
+        instance.on('error', error => workerFailed(instance, error));
+        instance.on('exit', code => {
+          if (!stopped) workerFailed(instance, new Error(`Snapshot formatter exited with code ${code}`));
+        });
+        instance.unref();
+      }
+      formatting = true;
+      worker.postMessage(snapshot);
+    } catch (error) {
+      const instance = worker;
+      workerFailed(instance, error);
+      instance?.terminate().catch(err => logger.error({ err }, 'Snapshot formatter shutdown failed'));
+    }
+  }
   const onRequest = (request, incomingRequest) => {
     const traffic = meters.get(incomingRequest.url);
     if (!traffic) throw new Error('Unknown upstream traffic route');
@@ -71,28 +102,16 @@ export function logUpstreamTraffic(proxy, logger, paths, { tunnelSockets, wsConn
         }
       }
     }
-    const rows = lodash.sortBy([...groups.values()], ['subscription', 'ip']);
-    const pendingRate = (group, value) => group.sampled === 0 ? 'collecting'
-      : `${formatRate(value)}${group.sampled < group.tunnels ? ` (+${group.tunnels - group.sampled} pending)` : ''}`;
-    const interval = protocols[0]?.intervalSeconds;
-    logger.info([
-      `Gateway connection snapshot (sample: ${interval == null ? 'collecting' : `${interval.toFixed(2)}s`})`,
-      `Connected: ${subscriptions.size} subscriptions | ${ips.size} client IPs | ${lodash.sumBy(rows, 'tunnels')} tunnels`,
-      rows.length ? table(['Subscription', 'Client IP', 'Protocols', 'Tunnels', 'Upload', 'Download'],
-        rows.map(group => [
-          group.subscription, group.ip, [...group.protocols].sort().join(', '), String(group.tunnels),
-          pendingRate(group, group.upload), pendingRate(group, group.download),
-        ])) : 'No clients connected.',
-      'Protocol totals (including traffic from connections closed during this interval):',
-      table(['Protocol', 'Tunnels', 'Upload', 'Download'], protocols.map(row => [
-        row.protocol, String(row.tunnels), formatRate(row.uploadBytesPerSecond), formatRate(row.downloadBytesPerSecond),
-      ])),
-      '',
-    ].join('\n'));
-  }, 5000);
+    format({ groups: [...groups.values()], protocols, subscriptionCount: subscriptions.size, ipCount: ips.size });
+  }, 60000);
   timer.unref();
   return () => {
+    stopped = true;
     clearInterval(timer);
     proxy.off('proxyReqWs', onRequest);
+    pendingSnapshot = null;
+    const instance = worker;
+    worker = null;
+    return instance?.terminate().catch(err => logger.error({ err }, 'Snapshot formatter shutdown failed'));
   };
 }

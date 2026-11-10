@@ -57,8 +57,11 @@ export async function createTrafficUsage(database) {
   async function update(transform) {
     const next = await database.transaction({ type: Transaction.TYPES.IMMEDIATE }, async transaction => {
       const current = await readState(transaction);
-      const updated = transform(current);
-      if (updated === undefined) return current;
+      // Idle samples refine boot timing without writing counters.
+      const latest = state && current && Date.parse(state.sampledAt) > Date.parse(current.sampledAt)
+        && lodash.isEqual(state.connections, current.connections) ? state : current;
+      const updated = transform(latest);
+      if (updated === undefined) return latest;
       validateState(updated);
       await Checkpoint.upsert({ id: 'state', value: updated }, { transaction });
       return updated;
@@ -74,7 +77,7 @@ export async function createTrafficUsage(database) {
       if (resetId !== undefined && !ids.includes(resetId)) {
         throw new Error('Cannot reset traffic for an unknown subscription');
       }
-      return update(currentState => {
+      const transform = currentState => {
         if (currentState && Date.parse(sample.sampledAt) < Date.parse(currentState.sampledAt)) {
           throw new Error('Out-of-order V2Ray traffic sample; retry collection');
         }
@@ -103,7 +106,16 @@ export async function createTrafficUsage(database) {
           } : sample.bootWindow,
           connections,
         };
-      });
+      };
+      const next = transform(state);
+      validateState(next);
+      if (state && sample.uptimeSeconds >= state.uptimeSeconds
+        && sample.bootWindow.min <= state.bootWindow.max && sample.bootWindow.max >= state.bootWindow.min
+        && lodash.isEqual(state.connections, next.connections)) {
+        state = next;
+        return snapshot();
+      }
+      return update(transform);
     },
     async remove(id) {
       await update(current => {

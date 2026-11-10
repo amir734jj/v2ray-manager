@@ -80,12 +80,16 @@ class ResourceHistory {
     this.subscriptionActivity = subscriptionActivity;
     this.destinations = destinations;
     this.clock = clock;
+    this.lastPrunedAt = -Infinity;
   }
 
   async pruneExpired() {
+    const now = this.clock();
+    if (now - this.lastPrunedAt < 60000) return;
     await this.Sample.destroy({
-      where: { timestamp: { [Op.lt]: this.clock() - RETENTION_MS } },
+      where: { timestamp: { [Op.lt]: now - RETENTION_MS } },
     });
+    this.lastPrunedAt = now;
   }
 
   async record(sample) {
