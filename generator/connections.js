@@ -151,11 +151,34 @@ export function configureClient(config, serverConfig, host) {
   return config;
 }
 
-export function createConnectionUrls(serverConfig, host) {
+function createV2rayNgShadowsocksUrl({ inbound, address, port, tag, streamSettings }) {
+  const profile = {
+    IndexId: inbound.tag,
+    ConfigType: 3,
+    Remarks: tag,
+    Address: address,
+    Port: port,
+    Password: inbound.settings.password,
+    Network: streamSettings.network,
+    StreamSecurity: streamSettings.security,
+    Sni: streamSettings.tlsSettings.serverName,
+    AllowInsecure: 'false',
+    ProtoExtraObj: { SsMethod: inbound.settings.method },
+    TransportExtraObj: {
+      Host: streamSettings.wsSettings.headers.Host,
+      Path: streamSettings.wsSettings.path,
+    },
+  };
+  return `v2rayn://${Buffer.from(JSON.stringify(profile)).toString('base64url')}`;
+}
+
+export function createConnectionUrls(serverConfig, host, { client = '' } = {}) {
   validateHost(host);
   return Object.fromEntries(protocols.map(protocol => {
     const options = connectionOptions(serverConfig, protocol, host);
     if (protocol !== 'vmess') options.tag = options.inbound.tag;
-    return [protocol, createConnectionUrl(options)];
+    return [protocol, protocol === 'shadowsocks' && client === 'v2rayng'
+      ? createV2rayNgShadowsocksUrl(options)
+      : createConnectionUrl(options)];
   }));
 }

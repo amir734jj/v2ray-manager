@@ -16,9 +16,15 @@ Client :443 -> Cloudflare -> Coolify -> gateway :53217 -> V2Ray
 | Shadowsocks | `/shadowsocks/<credential>` | Per-subscription private TCP port |
 
 Shadowsocks uses `aes-256-gcm`. Refresh an existing subscription URL after
-deployment to obtain its new SIP002 `ss://` profile. The profile uses
-`v2ray-plugin` with TLS, the same hostname and port 443, the subscription's
-private WebSocket path, and `mux=0`; clients must support this transport.
+deployment to obtain its new profile on the same hostname and HTTPS port 443,
+using the subscription's private WebSocket path.
+Current v2rayNG clients receive a native `v2rayn://` Shadowsocks profile because
+their `ss://` importer ignores `v2ray-plugin` WebSocket/TLS options. Without this,
+v2rayNG sends raw Shadowsocks to HTTPS port 443 and reports authentication/closed
+pipe errors. Keep v2rayNG updated and its subscription User-Agent at the default
+`v2rayNG/<version>`, then refresh the subscription. Other clients still receive
+the SIP002 `ss://` profile with `v2ray-plugin`, TLS, and `mux=0` and must support
+that transport. Subscription responses vary by User-Agent.
 Existing VLESS, VMess, and Trojan links and credentials are unchanged.
 Native Shadowsocks TCP/UDP ports are not published; this transport carries TCP.
 

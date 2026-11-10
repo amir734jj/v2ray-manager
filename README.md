@@ -51,16 +51,23 @@ creating or activating dashboard accounts. **Users** manages dashboard access
 only. Each subscription has its own credentials, URL, controls, and traffic
 statistics across VLESS, VMess, Trojan, and Shadowsocks.
 
-Each subscription response sorts links alphabetically by URL scheme (Shadowsocks,
-Trojan, VLESS, VMess) without changing existing credentials or connection settings.
+Each subscription response sorts links alphabetically by URL scheme without
+changing existing credentials or connection settings.
 VMess keeps its original embedded `vmess-ws` name and
 has no URL fragment.
 
 After deploying the update, refresh existing subscription URLs to receive the
 additional Shadowsocks profile; existing VLESS, VMess, and Trojan profiles remain
 unchanged. Shadowsocks uses `aes-256-gcm` over WebSocket + TLS on the same hostname
-and port 443, with a SIP002 `ss://` link specifying `v2ray-plugin`, TLS, and
-`mux=0`. Clients must support that plugin/transport. This is TCP over WebSocket,
+and port 443. For current v2rayNG clients, the gateway detects their default
+`v2rayNG/<version>` User-Agent and supplies Shadowsocks as a native `v2rayn://`
+profile, preserving WebSocket, TLS, SNI, Host, and path. v2rayNG's `ss://` importer
+ignores these plugin settings, causing a raw TCP connection to HTTPS port 443 and
+`cipher: message authentication failed` / `io: read/write on closed pipe`.
+Update v2rayNG, leave its subscription User-Agent at the default, and refresh the
+existing subscription after deploying this fix.
+Other clients receive a SIP002 `ss://` link specifying `v2ray-plugin`, TLS, and
+`mux=0`; they must support that plugin/transport. This is TCP over WebSocket,
 not a native Shadowsocks UDP listener. Each subscription has its own private
 Shadowsocks inbound and password; no new public port or database migration is needed.
 

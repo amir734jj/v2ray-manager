@@ -43,7 +43,7 @@ function validateIpLimit(value) {
   return value;
 }
 
-export function subscriptionContent(connection, host) {
+export function subscriptionContent(connection, host, client = '') {
   const config = {
     inbounds: lodash.map(protocols, protocol => ({
       protocol,
@@ -54,7 +54,7 @@ export function subscriptionContent(connection, host) {
       streamSettings: { network: 'ws', wsSettings: { path: `/${protocol}/${connection.credential}` } },
     })),
   };
-  const links = lodash.sortBy(lodash.values(createConnectionUrls(config, host)));
+  const links = lodash.sortBy(lodash.values(createConnectionUrls(config, host, { client })));
   return Buffer.from(links.join('\n') + '\n').toString('base64');
 }
 
@@ -454,14 +454,14 @@ export function createConnectionService({ connections, api, host, disconnect, li
       }
       return { ...authorization, protocol: parsed.protocol };
     },
-    async subscription(token) {
+    async subscription(token, client = '') {
       if (!uuidPattern.test(token) && !/^[a-f0-9]{64}$/.test(token)) throw createError(404, 'Subscription not found');
       return guarded(async () => {
         const row = await connections.findBySubscriptionTokenHash(tokenHash(token));
         if (!row) throw createError(404, 'Subscription not found');
         if (!row.enabled) throw createError(403, 'This connection is paused');
         if (row.syncStatus !== 'applied' || blocked.has(row.id)) throw createError(503, 'This connection is awaiting synchronization');
-        return subscriptionContent(row, host);
+        return subscriptionContent(row, host, client);
       });
     },
   };
