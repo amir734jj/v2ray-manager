@@ -729,9 +729,15 @@ configs separately; existing managed links remain valid.
   only ordinary unicast addresses are queried, excluding private, loopback,
   link-local, multicast, reserved and special-purpose ranges.
   VPNs/proxies may report their exit location; this does not
-  identify a person, device or exact address. Cloudflare-based country counters
-  and per-connection metadata are unchanged; known Cloudflare countries remain
-  visible while a lookup is pending or unavailable.
+  identify a person, device or exact address. Country counters and expanded
+  connection rows prefer trusted Cloudflare country metadata, falling back to
+  this same IP lookup when that metadata is missing. Once a lookup succeeds,
+  active sockets, attempts, and failures move from Unknown to the resolved
+  country, including sockets that closed while the lookup was pending.
+  Unattributed counts are grouped by IP in a bounded 2,000-entry, 24-hour cache;
+  resolved buckets are merged into country totals and released. Pending, failed,
+  non-public, or expired/evicted lookups remain Unknown. Trusted Cloudflare
+  countries are never replaced by IP lookup results.
   The process-local `lru-cache` holds up to 2,000 IPs for 24 hours, automatically
   expires entries and evicts least-recently-used results, shares in-flight
   requests across HTTP and Socket.IO, and limits concurrent requests
@@ -855,8 +861,10 @@ not merely the presence of a header.
 For mixed Cloudflare and direct traffic through Traefik, automatic Docker DNS
 discovery establishes proxy trust as described under concurrent-IP limits. Direct traffic
 then uses the forwarded client IP without trusting spoofed Cloudflare metadata.
-Without verified Cloudflare metadata, country is Unknown and logs use the
-trusted forwarded client IP or socket peer IP. Restrict access
+Without verified Cloudflare metadata, initial log metadata reports country as
+Unknown and uses the trusted forwarded client IP or socket peer IP. Dashboard
+country counters and connection details use IP geolocation as a fallback.
+Restrict access
 to IP logs and configure retention.
 
 If v2rayNG connects but browsing fails, ensure its local SOCKS port matches

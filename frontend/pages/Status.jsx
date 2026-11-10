@@ -224,7 +224,7 @@ function StatusContent({ user, subscriptionResource }) {
       </Table>
       {status.blocklistAvailable && <p><Link href="/blocked-ips">View blocked IPs</Link></p>}
       <h2 class="h4 mt-4">Connections by country</h2>
-      <p class="text-body-secondary">Based on trusted Cloudflare metadata; unavailable values appear as Unknown.</p>
+      <p class="text-body-secondary">Uses trusted Cloudflare country data, falling back to IP geolocation. Pending or unavailable lookups appear as Unknown.</p>
       <Counters rows={status.countries} countries />
       <footer class="mt-4 small text-body-secondary">
         <p>Started {status.startedAt} - Uptime {status.uptimeSeconds}s - <a href="/api/status.json" data-native>JSON snapshot</a></p>

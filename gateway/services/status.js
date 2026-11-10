@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import lodash from 'lodash';
+import { LRUCache } from 'lru-cache';
 import { createTrafficMeter } from './traffic.js';
 import { createResourceMeter } from './resources.js';
 import { listAccounts } from './accounts.js';
@@ -71,6 +72,7 @@ const counters = lodash.map(protocols, protocol => ({
   transport: 'ws', protocol, active: 0, total: 0, errors: 0,
 }));
 const countries = new Map();
+const pendingCountries = new LRUCache({ max: 2000, ttl: 24 * 60 * 60 * 1000 });
 const clients = new Map();
 const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
 export const MAX_CLIENT_DETAILS = 1000;
@@ -84,12 +86,12 @@ function connectionTotals() {
   };
 }
 
-export function trackConnection(transport, protocol, connection, {
-  country, ip, userAgent, tunnelId, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
-} = {}) {
-  const counter = lodash.find(counters, item => item.transport === transport && item.protocol === protocol);
-  const code = typeof country === 'string' && /^(?:[A-Z]{2}|T1)$/.test(country) && country !== 'XX'
-    ? country : 'unknown';
+function countryCode(value) {
+  return typeof value === 'string' && /^(?:[A-Z]{2}|T1)$/.test(value) && value !== 'XX'
+    ? value : 'unknown';
+}
+
+function countryCounter(code) {
   if (!countries.has(code)) {
     countries.set(code, {
       code,
@@ -97,22 +99,54 @@ export function trackConnection(transport, protocol, connection, {
       active: 0, total: 0, errors: 0,
     });
   }
-  const countryCounter = countries.get(code);
+  return countries.get(code);
+}
+
+function countryRecord(country, ip) {
+  const code = countryCode(country);
+  if (code === 'unknown' && ip) {
+    const existing = pendingCountries.get(ip);
+    if (existing) return existing;
+  }
+  const record = { row: countryCounter(code), active: 0, total: 0, errors: 0 };
+  if (code === 'unknown' && ip) pendingCountries.set(ip, record);
+  return record;
+}
+
+function resolveCountries(ipDetails) {
+  if (!ipDetails) return;
+  for (const [ip, record] of pendingCountries) {
+    const details = ipDetails.lookup(ip);
+    const code = details.status === 'ready' ? countryCode(details.countryCode) : 'unknown';
+    if (code === 'unknown') continue;
+    const row = countryCounter(code);
+    for (const field of ['active', 'total', 'errors']) {
+      record.row[field] -= record[field];
+      row[field] += record[field];
+    }
+    record.row = row;
+    pendingCountries.delete(ip);
+  }
+}
+
+export function trackConnection(transport, protocol, connection, {
+  country, ip, userAgent, tunnelId, connectionId = randomUUID(), connectedAt = new Date().toISOString(), bufferedBytes = 0,
+} = {}) {
+  const counter = lodash.find(counters, item => item.transport === transport && item.protocol === protocol);
+  const countryStats = countryRecord(country, ip);
   const client = clients.size < MAX_CLIENT_DETAILS ? {
     connectionId,
     tunnelId,
     ip: ip ?? 'unknown',
     protocol,
     transport,
-    countryCode: code,
-    countryName: countryCounter.name,
     userAgent: typeof userAgent === 'string' && userAgent.trim()
       ? userAgent.slice(0, MAX_USER_AGENT_LENGTH) : 'Unknown',
     connectedAt,
   } : null;
   const clientTraffic = traffic.track(connection, bufferedBytes, Boolean(client), { groupId: tunnelId, connectedAt });
-  if (client) clients.set(client, clientTraffic);
-  for (const row of [counter, countryCounter]) {
+  if (client) clients.set(client, { traffic: clientTraffic, country: countryStats });
+  for (const row of [counter, countryStats, countryStats.row]) {
     row.active++;
     row.total++;
   }
@@ -120,7 +154,8 @@ export function trackConnection(transport, protocol, connection, {
   if (tunnelId) gatewayEvents.emit('connections');
   connection.once('close', () => {
     counter.active--;
-    countryCounter.active--;
+    countryStats.active--;
+    countryStats.row.active--;
     if (client) clients.delete(client);
     gatewayEvents.emit('status');
     if (tunnelId) gatewayEvents.emit('connections');
@@ -129,7 +164,8 @@ export function trackConnection(transport, protocol, connection, {
   return () => {
     if (!failed) {
       counter.errors++;
-      countryCounter.errors++;
+      countryStats.errors++;
+      countryStats.row.errors++;
       gatewayEvents.emit('status');
     }
     failed = true;
@@ -137,11 +173,14 @@ export function trackConnection(transport, protocol, connection, {
 }
 
 export function snapshot(ipDetails, includeSubscriptions = false) {
+  resolveCountries(ipDetails);
   const totals = connectionTotals();
-  const activeClients = lodash.map([...clients], ([client, clientTraffic]) => {
+  const activeClients = lodash.map([...clients], ([client, { traffic: clientTraffic, country }]) => {
     const { tunnelId, ...details } = client;
     return {
       ...details,
+      countryCode: country.row.code,
+      countryName: country.row.name,
       ...(includeSubscriptions ? { subscriptionId: tunnelId ?? null } : {}),
       traffic: clientTraffic.snapshot(),
       elapsedSeconds: Math.max(0, Math.floor((Date.now() - Date.parse(client.connectedAt)) / 1000)),
