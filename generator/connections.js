@@ -27,10 +27,10 @@ export function validateHost(host) {
   return host;
 }
 
-export function configureServerTransports(config) {
+export function configureServerTransports(config, dnsServer) {
   config.dns = {
     ...config.dns,
-    servers: dnsAddresses.map(address => `https+local://${address}/dns-query`),
+    servers: dnsServer ? [dnsServer] : dnsAddresses.map(address => `https+local://${address}/dns-query`),
   };
   for (const outbound of config.outbounds ?? []) {
     if (outbound.protocol === 'freedom') {
@@ -62,8 +62,8 @@ export function configureServerTransports(config) {
   return config;
 }
 
-export function configureManagedServer(config) {
-  configureServerTransports(config);
+export function configureManagedServer(config, dnsServer) {
+  configureServerTransports(config, dnsServer);
   // V2Ray's single-user Shadowsocks inbounds are created per subscription by the API.
   config.inbounds = config.inbounds.filter(inbound => inbound.protocol !== 'shadowsocks');
   for (const inbound of config.inbounds.filter(item => protocols.includes(item.protocol))) {

@@ -1,10 +1,11 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync, renameSync, unlinkSync } from 'fs';
 import { execSync } from 'child_process';
+import { isIP } from 'net';
 import { join } from 'path';
 import QRCode from 'qrcode';
 import { configureClient, configureManagedServer, configureServerTransports, createConnectionUrls, protocols, validateHost } from './connections.js';
 
-const { V2RAY_UUID, V2RAY_HOST, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
+const { V2RAY_UUID, V2RAY_HOST, V2RAY_DNS_SERVER, FTP_HOST, FTP_USER, FTP_PASS, FTP_PATH } = process.env;
 const managed = process.env.V2RAY_MANAGED === 'true';
 
 // ── Generate server.json ─────────────────────────────────────────────────────
@@ -15,10 +16,15 @@ if (!managed && !V2RAY_UUID) {
   process.exit(1);
 }
 validateHost(V2RAY_HOST);
+if (V2RAY_DNS_SERVER && !isIP(V2RAY_DNS_SERVER)) {
+  throw new Error('V2RAY_DNS_SERVER must be an IP address');
+}
 
 const template = readFileSync('/app/templates/server.template.json', 'utf8');
+const serverConfig = JSON.parse(template.replaceAll('00000000-0000-0000-0000-000000000000', V2RAY_UUID ?? '00000000-0000-0000-0000-000000000000'));
 const serverJson = (managed ? configureManagedServer : configureServerTransports)(
-  JSON.parse(template.replaceAll('00000000-0000-0000-0000-000000000000', V2RAY_UUID ?? '00000000-0000-0000-0000-000000000000')),
+  serverConfig,
+  V2RAY_DNS_SERVER,
 );
 const config = JSON.stringify(serverJson, null, 2) + '\n';
 const tmpPath = `${cfgPath}.tmp`;
