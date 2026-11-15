@@ -20,7 +20,6 @@ COPY generator/package.json ./generator/
 RUN npm ci --workspace gateway --omit=dev
 COPY gateway/ ./gateway/
 COPY generator/package.json generator/connections.js ./generator/
-COPY v2ray/templates/ ./v2ray/templates/
 
 FROM oven/bun:latest
 RUN mkdir -p /data/metrics && chown bun:bun /data/metrics
@@ -28,7 +27,6 @@ WORKDIR /app
 COPY --from=gateway-dependencies /app/node_modules ./node_modules
 COPY --from=gateway-dependencies /app/gateway ./gateway
 COPY --from=gateway-dependencies /app/generator ./generator
-COPY --from=gateway-dependencies /app/v2ray/templates ./v2ray/templates
 COPY --from=frontend-build /app/gateway/public ./gateway/public
 USER bun
 CMD ["bun", "gateway/server.js"]

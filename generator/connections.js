@@ -120,6 +120,37 @@ export function configureClient(config, serverConfig, host) {
   return config;
 }
 
+export function createClientConfigs(serverConfig, host) {
+  return Object.fromEntries([...protocols, 'client'].map(name => {
+    const combined = name === 'client';
+    const config = {
+      inbounds: [{
+        listen: '127.0.0.1',
+        port: 10808,
+        protocol: 'socks',
+        settings: { udp: true },
+      }],
+      outbounds: [
+        ...(combined ? protocols : [name]).map(protocol => ({
+          tag: combined ? protocol : 'proxy',
+          protocol,
+          streamSettings: { network: 'ws' },
+        })),
+        { tag: 'direct', protocol: 'freedom' },
+        { tag: 'blocked', protocol: 'blackhole' },
+      ],
+      routing: {
+        domainStrategy: 'IPIfNonMatch',
+        rules: [
+          { type: 'field', ip: ['geoip:private'], outboundTag: 'direct' },
+          ...(combined ? [{ type: 'field', network: 'tcp,udp', outboundTag: protocols[0] }] : []),
+        ],
+      },
+    };
+    return [name, configureClient(config, serverConfig, host)];
+  }));
+}
+
 export function createConnectionUrls(serverConfig, host, { client = '' } = {}) {
   validateHost(host);
   return Object.fromEntries(protocols.map(protocol => {

@@ -280,6 +280,8 @@ Subscription URLs have the form `https://<V2RAY_HOST>/subscriptions/<token>`.
 They return a Base64-encoded list of share links, without dashboard login.
 The dashboard downloads individual links through the administrator-only
 `GET /api/connections/:id/profiles` endpoint instead.
+Its per-protocol and combined client JSON configurations are generated directly
+in code from the subscription credentials, without reading template files.
 New tokens are cryptographically generated UUID v4 values (36 characters).
 Existing 64-character hexadecimal tokens remain valid until replaced or reset.
 The token and its SHA-256 lookup hash are

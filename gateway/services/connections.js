@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import createError from 'http-errors';
 import lodash from 'lodash';
-import { configureClient, createConnectionUrls, protocols, shadowsocksMethod, validateHost } from '@v2ray-manager/generator';
+import { createClientConfigs, createConnectionUrls, protocols, shadowsocksMethod, validateHost } from '@v2ray-manager/generator';
 import { publicConnection } from '../database/postgres/tunnel-connections.js';
 import { parseTunnelPath } from '../proxy/paths.js';
 import { createDestinationMonitor } from './destinations.js';
@@ -499,16 +498,10 @@ export function createConnectionService({ connections, api, host, disconnect, li
     },
     async profiles(id) {
       return guarded(async () => {
-        const names = [...protocols, 'client'];
-        const templates = await Promise.all(names.map(name =>
-          readFile(new URL(`../../v2ray/templates/${name}.template.json`, import.meta.url), 'utf8')));
         const row = await find(id);
         ensureAvailable(row);
         const serverConfig = subscriptionConfig(row);
-        const configs = Object.fromEntries(names.map((name, index) => [
-          name, configureClient(JSON.parse(templates[index]), serverConfig, host),
-        ]));
-        return { links: subscriptionLinks(row, host), configs };
+        return { links: subscriptionLinks(row, host), configs: createClientConfigs(serverConfig, host) };
       });
     },
     async subscription(token, client = '') {
