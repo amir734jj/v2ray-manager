@@ -23,7 +23,7 @@ and a single PostgreSQL pool capped at two connections.
    PostgreSQL stores management accounts, sessions, tunnel connections, and blocked IPs. Its user
    needs permission to create and update tables and indexes.
 2. Attach your public hostname to **gateway port 53217** with WebSocket
-   upgrades. Do not attach it to `init` or `v2ray`.
+   upgrades. Do not attach it to `v2ray`.
 3. Enable Cloudflare proxying and WebSockets. Use **Full (strict)** TLS with
    a valid origin certificate, and exclude tunnel paths, `/subscriptions/`, and `/socket.io/`
    from caching and interactive challenges.
@@ -107,7 +107,7 @@ Both update about every five seconds; collection or storage failures mark core
 totals stale instead of reporting zero. Preserve the `gateway-metrics` volume.
 Accumulated totals are separate from the charts' 24-hour retention.
 Traffic not sampled before a V2Ray reset cannot be recovered.
-Redeploy `init` and V2Ray once to enable
+Redeploy V2Ray once to enable
 the StatsService and user counters.
 
 Subscription cards also show **Recent destinations**: the latest 50
@@ -119,7 +119,7 @@ the **Destinations** tab. This applies to all subscriptions and survives restart
 Shortening retention expires older history; increasing it cannot restore deleted
 history. Only administrators can view domains or change retention. Background apps
 also generate connections; this is not browser history or proof of a page visit.
-Inform subscribers about destination monitoring. Rebuild/redeploy **init, V2Ray,
+Inform subscribers about destination monitoring. Rebuild/redeploy **V2Ray
 and gateway** to enable the required `LoggerService` and sniffed-destination
 logging policy. Collection begins after deployment; old activity is not imported.
 
@@ -148,6 +148,14 @@ The presence of Cloudflare headers alone does not establish trust.
 The deployment no longer accepts `V2RAY_UUID` or shared FTP profiles. Existing
 clients need new private subscriptions after upgrading. Remove old FTP exports
 manually. Expiration and physical-device identification are not implemented.
+
+On each subscription card, **Show downloads and QR codes** provides the
+subscription URL and individual connection links as downloadable text and QR
+images, plus per-protocol and combined V2Ray client JSON configurations.
+These contain private credentials; share them only with the intended user.
+The individual Shadowsocks link requires `v2ray-plugin`; v2rayNG users should
+import the subscription URL instead. Paused subscriptions show the subscription
+URL but must be resumed before individual links can be downloaded.
 
 ## Dashboard and history
 

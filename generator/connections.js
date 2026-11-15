@@ -62,37 +62,6 @@ export function configureServerTransports(config, dnsServer) {
   return config;
 }
 
-export function configureManagedServer(config, dnsServer) {
-  configureServerTransports(config, dnsServer);
-  // V2Ray's single-user Shadowsocks inbounds are created per subscription by the API.
-  config.inbounds = config.inbounds.filter(inbound => inbound.protocol !== 'shadowsocks');
-  for (const inbound of config.inbounds.filter(item => protocols.includes(item.protocol))) {
-    inbound.settings.clients = [];
-  }
-  config.api = { tag: 'management-api', services: ['HandlerService', 'StatsService', 'LoggerService'] };
-  config.log = { ...config.log, access: 'none' };
-  config.stats = {};
-  config.policy = {
-    ...config.policy,
-    system: { ...config.policy?.system, overrideAccessLogDest: true },
-    levels: {
-      ...config.policy?.levels,
-      '0': { ...config.policy?.levels?.['0'], statsUserUplink: true, statsUserDownlink: true },
-    },
-  };
-  config.inbounds.push({
-    tag: 'management-api-inbound',
-    listen: '0.0.0.0',
-    port: 10085,
-    protocol: 'dokodemo-door',
-    settings: { address: '127.0.0.1' },
-  });
-  config.routing.rules.unshift({
-    type: 'field', inboundTag: ['management-api-inbound'], outboundTag: 'management-api',
-  });
-  return config;
-}
-
 function connectionOptions(serverConfig, protocol, host) {
   const inbound = serverConfig.inbounds.find(
     item => item.protocol === protocol && item.streamSettings?.network === 'ws',
@@ -149,6 +118,37 @@ export function configureClient(config, serverConfig, host) {
   }
 
   return config;
+}
+
+export function createClientConfigs(serverConfig, host) {
+  return Object.fromEntries([...protocols, 'client'].map(name => {
+    const combined = name === 'client';
+    const config = {
+      inbounds: [{
+        listen: '127.0.0.1',
+        port: 10808,
+        protocol: 'socks',
+        settings: { udp: true },
+      }],
+      outbounds: [
+        ...(combined ? protocols : [name]).map(protocol => ({
+          tag: combined ? protocol : 'proxy',
+          protocol,
+          streamSettings: { network: 'ws' },
+        })),
+        { tag: 'direct', protocol: 'freedom' },
+        { tag: 'blocked', protocol: 'blackhole' },
+      ],
+      routing: {
+        domainStrategy: 'IPIfNonMatch',
+        rules: [
+          { type: 'field', ip: ['geoip:private'], outboundTag: 'direct' },
+          ...(combined ? [{ type: 'field', network: 'tcp,udp', outboundTag: protocols[0] }] : []),
+        ],
+      },
+    };
+    return [name, configureClient(config, serverConfig, host)];
+  }));
 }
 
 export function createConnectionUrls(serverConfig, host, { client = '' } = {}) {

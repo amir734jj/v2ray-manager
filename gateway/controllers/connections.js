@@ -16,6 +16,10 @@ export function createConnectionsController({ tunnels, auth }) {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
     response.json(await connectionsSnapshot(tunnels));
   });
+  router.get('/api/connections/:id/profiles', auth.requireUser, auth.requireAdmin, async (request, response) => {
+    if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
+    response.json(await tunnels.profiles(request.params.id));
+  });
   router.post('/api/connections', auth.requireUser, auth.requireAdmin, sameOrigin, express.json({ limit: '2kb' }), async (request, response) => {
     if (!tunnels) throw createError(503, 'Tunnel management is unavailable');
     response.status(201).json(await tunnels.create(request.body?.name, request.body?.maxConcurrentIps));

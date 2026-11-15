@@ -51,7 +51,21 @@ async function main() {
   // --- Update v2ray-all/server.json (bootstrap from template if missing) -----
   const sourcePath = await access(serverPath).then(() => serverPath).catch(() => templatePath);
   const serverRaw = await readFile(sourcePath, 'utf8');
-  const serverJson = configureServerTransports(JSON.parse(serverRaw));
+  const serverJson = JSON.parse(serverRaw);
+  if (sourcePath === templatePath) {
+    delete serverJson.api;
+    delete serverJson.stats;
+    delete serverJson.policy;
+    delete serverJson.log.access;
+    serverJson.inbounds = serverJson.inbounds.filter(inbound => inbound.tag !== 'management-api-inbound');
+    serverJson.routing.rules = serverJson.routing.rules.filter(rule => rule.outboundTag !== 'management-api');
+    for (const inbound of serverJson.inbounds) {
+      if (inbound.protocol === 'trojan') inbound.settings.clients = [{ password: newId }];
+      if (inbound.protocol === 'vless') inbound.settings.clients = [{ id: newId }];
+      if (inbound.protocol === 'vmess') inbound.settings.clients = [{ id: newId, alterId: 0 }];
+    }
+  }
+  configureServerTransports(serverJson);
   for (const inbound of serverJson.inbounds ?? []) {
     if (inbound.protocol === 'shadowsocks') inbound.settings.password = newId;
     for (const client of inbound.settings?.clients ?? []) {

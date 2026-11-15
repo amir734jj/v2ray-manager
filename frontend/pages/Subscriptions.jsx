@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import prettyBytes from 'pretty-bytes';
 import { api, errorMessage } from '../api.js';
 import TrafficRate from '../components/TrafficRate.jsx';
+import SubscriptionDownloads from '../components/SubscriptionDownloads.jsx';
 import { useResource } from '../useResource.js';
 
 function Timestamp({ value, empty }) {
@@ -143,6 +144,8 @@ function SubscriptionList() {
               </div> : <p class="small text-body-secondary mb-0">
                 This older URL cannot be recovered. Replace it once to display a new URL here; the old URL will stop working.
               </p>}
+              {connection.subscriptionUrl && <SubscriptionDownloads
+                key={`${connection.subscriptionUrl}:${connection.enabled}:${connection.syncStatus}`} connection={connection} />}
             </div>
             <dl class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3 mb-0">
               <div class="col"><dt class="small text-body-secondary">Open tunnels</dt><dd class="mb-0">{connection.gateway.openTunnels}</dd></div>
