@@ -1,6 +1,18 @@
 {
   "log": {
-    "loglevel": "warning"
+    "loglevel": "warning",
+    "access": "none"
+  },
+  "api": {
+    "tag": "management-api",
+    "services": ["HandlerService", "StatsService", "LoggerService"]
+  },
+  "stats": {},
+  "policy": {
+    "system": { "overrideAccessLogDest": true },
+    "levels": {
+      "0": { "statsUserUplink": true, "statsUserDownlink": true }
+    }
   },
   "dns": {
     "servers": [
@@ -20,11 +32,7 @@
         "metadataOnly": false
       },
       "settings": {
-        "clients": [
-          {
-            "id": "00000000-0000-0000-0000-000000000000"
-          }
-        ],
+        "clients": [],
         "decryption": "none"
       },
       "streamSettings": {
@@ -44,12 +52,7 @@
         "metadataOnly": false
       },
       "settings": {
-        "clients": [
-          {
-            "id": "00000000-0000-0000-0000-000000000000",
-            "alterId": 0
-          }
-        ],
+        "clients": [],
         "disableInsecureEncryption": true
       },
       "streamSettings": {
@@ -69,11 +72,7 @@
         "metadataOnly": false
       },
       "settings": {
-        "clients": [
-          {
-            "password": "00000000-0000-0000-0000-000000000000"
-          }
-        ]
+        "clients": []
       },
       "streamSettings": {
         "network": "ws",
@@ -82,25 +81,11 @@
       }
     },
     {
-      "tag": "shadowsocks-53220",
+      "tag": "management-api-inbound",
       "listen": "0.0.0.0",
-      "port": 53220,
-      "protocol": "shadowsocks",
-      "sniffing": {
-        "enabled": true,
-        "destOverride": ["http", "tls"],
-        "metadataOnly": false
-      },
-      "settings": {
-        "method": "aes-256-gcm",
-        "password": "00000000-0000-0000-0000-000000000000",
-        "network": "tcp"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": { "path": "/shadowsocks" }
-      }
+      "port": 10085,
+      "protocol": "dokodemo-door",
+      "settings": { "address": "127.0.0.1" }
     }
   ],
   "outbounds": [
@@ -117,6 +102,11 @@
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["management-api-inbound"],
+        "outboundTag": "management-api"
+      },
       {
         "type": "field",
         "ip": ["geoip:private"],

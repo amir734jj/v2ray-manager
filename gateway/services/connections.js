@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import createError from 'http-errors';
 import lodash from 'lodash';
-import { createConnectionUrls, protocols, shadowsocksMethod, validateHost } from '@v2ray-manager/generator';
+import { configureClient, createConnectionUrls, protocols, shadowsocksMethod, validateHost } from '@v2ray-manager/generator';
 import { publicConnection } from '../database/postgres/tunnel-connections.js';
 import { parseTunnelPath } from '../proxy/paths.js';
 import { createDestinationMonitor } from './destinations.js';
@@ -43,8 +44,8 @@ function validateIpLimit(value) {
   return value;
 }
 
-export function subscriptionContent(connection, host, client = '') {
-  const config = {
+function subscriptionConfig(connection) {
+  return {
     inbounds: lodash.map(protocols, protocol => ({
       protocol,
       tag: `${protocol}-${connection.id.slice(0, 8)}`,
@@ -54,8 +55,14 @@ export function subscriptionContent(connection, host, client = '') {
       streamSettings: { network: 'ws', wsSettings: { path: `/${protocol}/${connection.credential}` } },
     })),
   };
-  const links = lodash.sortBy(lodash.values(createConnectionUrls(config, host, { client })));
-  return Buffer.from(links.join('\n') + '\n').toString('base64');
+}
+
+function subscriptionLinks(connection, host, client = '') {
+  return lodash.sortBy(lodash.values(createConnectionUrls(subscriptionConfig(connection), host, { client })));
+}
+
+export function subscriptionContent(connection, host, client = '') {
+  return Buffer.from(subscriptionLinks(connection, host, client).join('\n') + '\n').toString('base64');
 }
 
 export function createConnectionService({ connections, api, host, disconnect, listIps, trafficUsage, subscriptionActivity, destinations, activitySnapshot, logger, onChange: notifyChange = () => {} }) {
@@ -157,6 +164,11 @@ export function createConnectionService({ connections, api, host, disconnect, li
       throw createError(404, 'Connection not found');
     }
     return row;
+  }
+
+  function ensureAvailable(row) {
+    if (!row.enabled) throw createError(403, 'This connection is paused');
+    if (row.syncStatus !== 'applied' || blocked.has(row.id)) throw createError(503, 'This connection is awaiting synchronization');
   }
 
   async function apply(row) {
@@ -485,13 +497,26 @@ export function createConnectionService({ connections, api, host, disconnect, li
       }
       return { ...authorization, protocol: parsed.protocol };
     },
+    async profiles(id) {
+      return guarded(async () => {
+        const names = [...protocols, 'client'];
+        const templates = await Promise.all(names.map(name =>
+          readFile(new URL(`../../v2ray/templates/${name}.template.json`, import.meta.url), 'utf8')));
+        const row = await find(id);
+        ensureAvailable(row);
+        const serverConfig = subscriptionConfig(row);
+        const configs = Object.fromEntries(names.map((name, index) => [
+          name, configureClient(JSON.parse(templates[index]), serverConfig, host),
+        ]));
+        return { links: subscriptionLinks(row, host), configs };
+      });
+    },
     async subscription(token, client = '') {
       if (!uuidPattern.test(token) && !/^[a-f0-9]{64}$/.test(token)) throw createError(404, 'Subscription not found');
       return guarded(async () => {
         const row = await connections.findBySubscriptionTokenHash(tokenHash(token));
         if (!row) throw createError(404, 'Subscription not found');
-        if (!row.enabled) throw createError(403, 'This connection is paused');
-        if (row.syncStatus !== 'applied' || blocked.has(row.id)) throw createError(503, 'This connection is awaiting synchronization');
+        ensureAvailable(row);
         return subscriptionContent(row, host, client);
       });
     },

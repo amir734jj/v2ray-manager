@@ -62,37 +62,6 @@ export function configureServerTransports(config, dnsServer) {
   return config;
 }
 
-export function configureManagedServer(config, dnsServer) {
-  configureServerTransports(config, dnsServer);
-  // V2Ray's single-user Shadowsocks inbounds are created per subscription by the API.
-  config.inbounds = config.inbounds.filter(inbound => inbound.protocol !== 'shadowsocks');
-  for (const inbound of config.inbounds.filter(item => protocols.includes(item.protocol))) {
-    inbound.settings.clients = [];
-  }
-  config.api = { tag: 'management-api', services: ['HandlerService', 'StatsService', 'LoggerService'] };
-  config.log = { ...config.log, access: 'none' };
-  config.stats = {};
-  config.policy = {
-    ...config.policy,
-    system: { ...config.policy?.system, overrideAccessLogDest: true },
-    levels: {
-      ...config.policy?.levels,
-      '0': { ...config.policy?.levels?.['0'], statsUserUplink: true, statsUserDownlink: true },
-    },
-  };
-  config.inbounds.push({
-    tag: 'management-api-inbound',
-    listen: '0.0.0.0',
-    port: 10085,
-    protocol: 'dokodemo-door',
-    settings: { address: '127.0.0.1' },
-  });
-  config.routing.rules.unshift({
-    type: 'field', inboundTag: ['management-api-inbound'], outboundTag: 'management-api',
-  });
-  return config;
-}
-
 function connectionOptions(serverConfig, protocol, host) {
   const inbound = serverConfig.inbounds.find(
     item => item.protocol === protocol && item.streamSettings?.network === 'ws',
