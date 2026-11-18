@@ -67,6 +67,8 @@ export default function SubscriptionDownloads({ connection }) {
       <div class="d-grid gap-2 mt-2">
         {subscriptionQr && <Download label="Subscription" value={connection.subscriptionUrl}
           qr={subscriptionQr} filename="subscription" />}
+        {connection.subscriptionUrl && <a class="btn btn-sm btn-outline-secondary"
+          href={`${connection.subscriptionUrl}/status`} target="_blank" rel="noopener noreferrer">Check subscription IP limit</a>}
         {combinedConfig && <a class="btn btn-sm btn-outline-primary justify-self-start" download="client.json"
           href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(combinedConfig, null, 2) + '\n')}`}>Download combined JSON</a>}
         {profiles?.map(({ protocol, link, qr, config }) => <Download key={protocol} label={protocol.toUpperCase()}

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { MAX_USER_AGENT_LENGTH, trackConnection } from '../services/status.js';
 import { clientAddress } from '../services/client-ip.js';
 import { parseTunnelPath } from './paths.js';
-import { activeTunnelIps, trackTunnelSocket } from './sockets.js';
+import { activeTunnelIps, isIpLimitReached, trackTunnelSocket } from './sockets.js';
 import { parsePort } from '../services/config.js';
 
 export function createTunnelHandler({
@@ -49,7 +49,7 @@ export function createTunnelHandler({
         return;
       }
       const ips = activeTunnelIps(tunnelSockets, tunnel.id);
-      if (!ips.has(metadata.ip) && ips.size >= tunnel.maxConcurrentIps) {
+      if (isIpLimitReached(ips, metadata.ip, tunnel.maxConcurrentIps)) {
         logger.warn({
           tunnelId: tunnel.id, protocol: tunnel.protocol, maxConcurrentIps: tunnel.maxConcurrentIps,
         }, 'Gateway concurrent IP limit reached');

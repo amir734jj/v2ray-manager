@@ -1,3 +1,7 @@
+export function isIpLimitReached(ips, ip, maxConcurrentIps) {
+  return maxConcurrentIps > 0 && !ips.has(ip) && ips.size >= maxConcurrentIps;
+}
+
 export function trackTunnelSocket(tunnelSockets, socket, connection) {
   const id = connection.client.tunnelId;
   let group = tunnelSockets.get(id);

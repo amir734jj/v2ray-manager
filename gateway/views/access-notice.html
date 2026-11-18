@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%- notice.title %></title>
+  <style>
+    body { margin: 0; padding: 2rem; background: #f3f4f6; color: #172033; font: 1rem/1.6 system-ui, sans-serif; }
+    main { max-width: 38rem; margin: 10vh auto; padding: 2rem; background: white; border-radius: 1rem; }
+    h1 { font-size: 1.6rem; line-height: 1.3; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1><%- notice.message %></h1>
+    <p><%- notice.advice %></p>
+    <% if (notice.detail) { %>
+    <p><%- notice.detail %></p>
+    <% } %>
+    <p>This check applies to the public IP address used to open this page. Shared networks or a changed connection can affect the result.</p>
+  </main>
+</body>
+</html>

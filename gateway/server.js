@@ -81,7 +81,7 @@ const app = createGatewayApp({
   secureCookies: secureCookies === 'true',
   blocklist: gatewayProxy.blocklist,
 });
-server = createServer(gatewayProxy.createHandler(app));
+server = createServer(gatewayProxy.createHandler(app, { tunnels }));
 gatewayProxy.attach(server, { tunnels });
 
 attachRealtime(server, {

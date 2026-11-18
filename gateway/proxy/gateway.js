@@ -1,8 +1,15 @@
 import { parseTunnelPath } from './paths.js';
+import { serveAccessNotice } from './notices.js';
 
-export function createGatewayHandler({ app, routes }) {
+export function createGatewayHandler({ app, routes, blocklist, tunnels, logger, trustProxy, trustCloudflareHeaders }) {
   return (request, response) => {
     const path = new URL(request.url, 'http://localhost').pathname;
+    const subscriptionNotice = /^\/subscriptions\/([^/]+)\/status$/.exec(path);
+    if (path === '/blocked' || subscriptionNotice) {
+      return serveAccessNotice(request, response, {
+        blocklist, tunnels, logger, trustProxy, trustCloudflareHeaders, subscriptionToken: subscriptionNotice?.[1],
+      });
+    }
     if (path === '/healthz') {
       response.writeHead(200, { 'content-type': 'text/plain' });
       response.end('ok\n');

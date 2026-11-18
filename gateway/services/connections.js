@@ -4,6 +4,7 @@ import lodash from 'lodash';
 import { createClientConfigs, createConnectionUrls, protocols, shadowsocksMethod, validateHost } from '@v2ray-manager/generator';
 import { publicConnection } from '../database/postgres/tunnel-connections.js';
 import { parseTunnelPath } from '../proxy/paths.js';
+import { isIpLimitReached } from '../proxy/sockets.js';
 import { createDestinationMonitor } from './destinations.js';
 
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -168,6 +169,14 @@ export function createConnectionService({ connections, api, host, disconnect, li
   function ensureAvailable(row) {
     if (!row.enabled) throw createError(403, 'This connection is paused');
     if (row.syncStatus !== 'applied' || blocked.has(row.id)) throw createError(503, 'This connection is awaiting synchronization');
+  }
+
+  async function findSubscription(token) {
+    if (!uuidPattern.test(token) && !/^[a-f0-9]{64}$/.test(token)) throw createError(404, 'Subscription not found');
+    const row = await connections.findBySubscriptionTokenHash(tokenHash(token));
+    if (!row) throw createError(404, 'Subscription not found');
+    ensureAvailable(row);
+    return row;
   }
 
   async function apply(row) {
@@ -505,12 +514,18 @@ export function createConnectionService({ connections, api, host, disconnect, li
       });
     },
     async subscription(token, client = '') {
-      if (!uuidPattern.test(token) && !/^[a-f0-9]{64}$/.test(token)) throw createError(404, 'Subscription not found');
       return guarded(async () => {
-        const row = await connections.findBySubscriptionTokenHash(tokenHash(token));
-        if (!row) throw createError(404, 'Subscription not found');
-        ensureAvailable(row);
+        const row = await findSubscription(token);
         return subscriptionContent(row, host, client);
+      });
+    },
+    async subscriptionAccess(token, ip) {
+      return guarded(async () => {
+        const row = await findSubscription(token);
+        return {
+          maxConcurrentIps: row.maxConcurrentIps,
+          ipLimitReached: isIpLimitReached(new Set(listIps(row.id)), ip, row.maxConcurrentIps),
+        };
       });
     },
   };

@@ -229,6 +229,41 @@ The administrator's **Subscriptions** page provides:
   until the active count drops below the new limit. Pausing or deleting releases
   the subscription's slots. Other subscriptions have independent limits.
 
+#### Subscription IP-limit notice
+
+Open `https://<V2RAY_HOST>/subscriptions/<token>/status`, or use **Check
+subscription IP limit** in the subscription downloads panel. This separate
+browser page leaves the subscription download at `/subscriptions/<token>`
+unchanged. It requires the existing secret subscription token, not a dashboard
+login. Treat the status link as a bearer secret too: anyone with it can access
+the subscription download by removing `/status`. Token replacement, credential
+reset, and subscription deletion invalidate the old status link.
+
+The page returns HTTP 429 when the visiting IP would exceed the subscription's
+concurrent IP limit, with advice to disconnect another network or contact the
+administrator. It returns HTTP 200 if there is capacity, the visiting IP already
+has an active tunnel, or the limit is unlimited. It reads current limits and live
+tunnel IPs on every request, including pending handshakes, using the same IP
+resolution and limit rule as tunnel upgrades. Viewing the page does not reserve
+a slot. It shows the configured limit, but no other client IPs, tunnel credentials,
+or subscription URLs. This is an IP-limit check, not a full connectivity check;
+use `/blocked` separately to check the global IP blocklist.
+
+GET and HEAD are supported; other methods return 405. Unknown or invalid tokens
+return 404, paused subscriptions return 403, and unavailable IP information,
+unsynchronized subscriptions, or lookup failures return 503. All responses are
+uncached and suppress referrers. Both this notice and `/blocked` use a shared
+server-rendered Lodash template in
+[`gateway/views/access-notice.html`](../gateway/views/access-notice.html), without
+JavaScript or external assets.
+
+Expose this path through external access policies without caching, challenges,
+or dashboard-login requirements, and redact it from access logs like other
+`/subscriptions/*` URLs. The user must open it directly over an independent
+working route to the gateway. A rejected proxy handshake cannot automatically
+display or redirect to a browser page; another connection may use a different
+public IP and therefore get a different result.
+
 The gateway automatically resolves Coolify's `coolify-proxy` service through
 Docker DNS at startup and every 30 seconds after each lookup completes.
 It resolves both `coolify-proxy` and, when Coolify supplies `COOLIFY_RESOURCE_UUID`,
@@ -828,6 +863,31 @@ Use **Block IP** next to an active IP group, or enter an address in **Blocked IP
 Blocking immediately disconnects every matching proxy socket and rejects new
 WebSocket connections with HTTP 403. **Unblock IP** allows future connections.
 The status page remains reachable from blocked IPs.
+
+#### Public block notice
+
+Open `https://<gateway-host>/blocked` directly to check the IP address used to
+reach the gateway. This public page requires no login, JavaScript, or frontend
+assets. It returns HTTP 403 with "Your IP address is blocked from using this
+proxy" and advice to contact the administrator, or HTTP 200 with "Your IP
+address is not blocked". The result uses the current blocklist and the same
+client-IP and trusted-proxy rules as WebSocket upgrades. GET and HEAD are
+supported; other methods return 405. An unavailable client IP or failed lookup
+returns 503 instead of claiming a block status. Responses are not cached.
+
+Expose `/blocked` through any external gateway access policy. It uses the
+gateway's existing HTTPS termination and certificate; no DNS or certificate
+changes are needed. Blocking still disconnects tunnels and rejects WebSocket
+handshakes: it does **not** redirect arbitrary websites or automatically open
+this page. Proxy clients cannot display the rejected handshake as a browser
+page, and the gateway cannot replace an HTTPS destination's content.
+
+If the blocked proxy is the browser's only network route, reach the gateway
+independently (for example, bypass the proxy for the gateway hostname). A
+different connection may use a different public IP, and people on a shared
+public IP receive the same result. No private tunnel or subscription URLs are
+shown. Status pages, management APIs, subscriptions, health checks, and other
+routes retain their existing behavior.
 
 **Only active administrators can block or unblock IPs.** Active viewers have
 read-only access. Session authentication, administrator checks and same-origin
