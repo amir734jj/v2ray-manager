@@ -112,6 +112,9 @@ Detailed logs include:
   timer drift does not establish which component caused a connection failure.
 
 The administrator-only Status page also shows a **Tunnel diagnostics** panel.
+It is hidden by default, like the history graphs; select **Show tunnel diagnostics**
+to expand it or **Hide tunnel diagnostics** to collapse it. Hiding the panel does
+not stop gateway event recording.
 It retains the latest 50 closure/rejection events in gateway memory, with a
 subscription filter, full UTC timestamps, expandable event details, and the
 last observed event-loop delay. Recording is opt-in through the same environment

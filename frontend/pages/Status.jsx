@@ -90,6 +90,7 @@ function StatusContent({ user, subscriptionResource }) {
   const { data: status, error: refreshError, loading, refresh, lastUpdatedAt } = useResource('/api/status.json');
   const [expandedIp, setExpandedIp] = useState(new URLSearchParams(location.search).get('client'));
   const [showHistory, setShowHistory] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const subscriptionsByIp = new Map();
@@ -130,8 +131,14 @@ function StatusContent({ user, subscriptionResource }) {
           </div></div></div>)}
       </section>
       {user.admin && <>
-        <TunnelDiagnostics status={status} connections={subscriptionResource?.data?.connections ?? []}
-          lastUpdatedAt={lastUpdatedAt} stale={Boolean(refreshError || loading)} />
+        <button class="btn btn-outline-secondary mb-4" aria-expanded={showDiagnostics}
+          aria-controls="tunnel-diagnostics-panel" onClick={() => setShowDiagnostics(visible => !visible)}>
+          {showDiagnostics ? 'Hide tunnel diagnostics' : 'Show tunnel diagnostics'}
+        </button>
+        <div id="tunnel-diagnostics-panel" hidden={!showDiagnostics}>
+          {showDiagnostics && <TunnelDiagnostics status={status} connections={subscriptionResource?.data?.connections ?? []}
+            lastUpdatedAt={lastUpdatedAt} stale={Boolean(refreshError || loading)} />}
+        </div>
         <OnlineSubscriptions resource={subscriptionResource} />
       </>}
       <h2 class="h4">Gateway process resources</h2>
