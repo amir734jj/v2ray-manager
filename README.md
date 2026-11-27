@@ -189,9 +189,24 @@ details and stacks rather than inline JSON. Logs contain subscription names
 and IPs; restrict access and retention. Credentials and subscription URLs are
 not included in snapshots.
 
+For intermittent disconnects, temporarily set `GATEWAY_TUNNEL_DIAGNOSTICS=true`
+on the gateway. This enables per-tunnel handshake timing, socket-close diagnostics,
+explicit gateway disconnect reasons, and event-loop delay warnings without
+inspecting payloads. It is off by default; disable it after collecting an incident
+because detailed logs increase volume. See
+[Tunnel diagnostics](./docs/operations.md#tunnel-diagnostics).
+Administrators can inspect the latest 50 in-memory closures/rejections on the
+Status page, filter by subscription, and copy a report without credentials or
+subscription URLs. Reports still contain IPs and subscription names.
+Dashboard reconnect warnings remain until a fresh snapshot arrives.
+
 Dashboard database reads are batched and shared across viewers; live socket and
-traffic state is still computed on every update. Log-table layout runs in a
-worker rather than blocking proxy I/O. Unchanged subscription activity and
+traffic snapshots are also shared across viewers for at most 100 milliseconds,
+with invalidation on realtime changes and separate administrator/non-administrator
+status caches. Sessions are still rechecked for every update. Log-table layout runs in a
+worker rather than blocking proxy I/O. Traffic sampling reads each open socket's
+counters once per sample and reuses those values for aggregate, subscription,
+and detailed rates. Unchanged subscription activity and
 traffic checkpoints skip SQLite writes, and core reconciliation uses one
 existing VLESS account as a restart probe instead of re-adding every user.
 

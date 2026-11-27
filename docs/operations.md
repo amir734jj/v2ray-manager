@@ -88,6 +88,81 @@ and the `/socket.io/` WebSocket transport are unchanged.
    `v2ray-plugin`; v2rayNG users should import the subscription URL instead.
    Individual links are available while the subscription is enabled and synchronized.
 
+## Tunnel diagnostics
+
+For short interruptions during active transfers, temporarily set
+`GATEWAY_TUNNEL_DIAGNOSTICS=true` in the gateway deployment environment.
+The default is `false`; other values fail startup explicitly.
+This works with both DNS-only hostnames and Cloudflare-proxied deployments.
+
+Detailed logs include:
+
+- `Tunnel upstream handshake`: subscription/connection ID, protocol, HTTP
+  status, full UTC observation time, and upstream handshake duration in milliseconds.
+- `Tunnel socket closed`: full UTC closure time, duration, final client-facing
+  and upstream socket byte deltas, resolved client IP versus immediate socket
+  peer, upstream address/port, first observed closing side/event, and socket
+  error code/syscall when available.
+- `gatewayReason`: distinguishes shutdown, IP blocking, subscription pause,
+  reset, deletion, reconciliation state changes, and synchronization failures.
+- `Tunnel handshake rejected`: status and reason for rejected upgrades,
+  including the observed active-IP count for IP-limit rejections.
+- `Gateway event loop delayed`: a one-second timer observed at least 250 ms
+  late. Correlate this with CPU/resource pressure and the disconnect timestamp;
+  timer drift does not establish which component caused a connection failure.
+
+The administrator-only Status page also shows a **Tunnel diagnostics** panel.
+It retains the latest 50 closure/rejection events in gateway memory, with a
+subscription filter, full UTC timestamps, expandable event details, and the
+last observed event-loop delay. Recording is opt-in through the same environment
+flag; the panel explicitly reports disabled or unavailable diagnostics.
+History is neither persisted nor restored after a gateway restart. Both the
+HTTP status response and realtime administrator status snapshot expose these
+events; non-administrator responses omit them.
+
+**Copy diagnostic report** copies the filtered events plus gateway resources,
+traffic counters, uptime, and dashboard freshness to the clipboard. It excludes
+credentials, private paths, subscription URLs, cookies, and payloads, but
+contains subscriber IPs and names. Share only with trusted support. A stale
+snapshot is labeled as such in the UI and report. Dashboard reconnect warnings
+are not cleared until new resource data arrives, so a successful Socket.IO
+reconnect cannot prematurely turn retained subscription data back to Online.
+
+`client-facing` is the gateway's socket toward Coolify (or a directly connected
+client), not proof that the subscriber initiated the close. `upstream` is the
+gateway-to-V2Ray socket. The first observed event is local evidence, not a
+definitive network root cause. Ordinary FIN/EOF closures are logged at info
+level, not counted as diagnostic socket errors. Existing proxy-error counters
+retain their meaning; diagnostics also capture client-facing errors that those
+counters do not cover. Handshake timing measures the gateway's upstream
+request/upgrade, not the subscriber's initial DNS/TLS connection.
+
+No payloads, cookies, credentials, private tunnel paths, or subscription URLs
+are logged by the diagnostic collector. Socket byte totals include transport
+framing and may include handshake bytes; they are not authenticated payload
+totals. There are no per-data-chunk diagnostic callbacks. Nevertheless,
+per-handshake/close logs increase volume and contain subscriber IPs and names:
+restrict access, collect a short incident window, then disable diagnostics.
+The new behavior takes effect on the next gateway deployment; no V2Ray
+configuration or client-profile change is needed.
+
+Correlate the same UTC timestamp with client logs and V2Ray/Coolify container
+restarts, OOM events, and resource usage. Gateway resource charts do not measure
+V2Ray or Coolify CPU/memory. A healthy listener healthcheck does not prove that
+an end-to-end tunnel is usable.
+
+Realtime dashboard viewers share equivalent snapshot computations for at most
+100 ms, with immediate cache invalidation on the corresponding events.
+Administrator and non-administrator status snapshots use separate caches;
+session checks and administrator authorization still happen for each viewer.
+An invalidated in-flight result is replaced before delivery, and failed
+snapshots are reported normally rather than cached as successful data.
+
+Traffic sampling uses a single pass over open sockets to compute aggregate,
+per-subscription, and detailed rates. Closed-socket totals and live snapshot
+behavior are unchanged. This reduces monitoring work, not WebSocket framing,
+encryption, or network latency.
+
 ## Management accounts
 
 The management dashboard uses Preact, Preact Router, Axios, Socket.IO and Vite.

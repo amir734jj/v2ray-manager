@@ -160,7 +160,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
     const row = await connections.findById(id);
     if (!row) {
       revokeAuthorization(id);
-      disconnect(id);
+      disconnect(id, 'subscription_not_found');
       throw createError(404, 'Connection not found');
     }
     return row;
@@ -196,7 +196,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
     } catch (error) {
       const message = 'Live V2Ray update failed; access is blocked until synchronization succeeds.';
       revokeAuthorization(row.id);
-      disconnect(row.id);
+      disconnect(row.id, 'subscription_sync_failed');
       logger.error({
         connectionId: row.id, errorName: error.name, errorCode: error.original?.code ?? error.code,
       }, 'Tunnel credential synchronization failed');
@@ -221,7 +221,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
       const row = desired.get(id);
       if (!row || row.credential !== credential || !row.enabled || row.syncStatus !== 'applied') {
         revokeAuthorization(id);
-        disconnect(id);
+        disconnect(id, 'subscription_state_changed');
       } else {
         cacheAuthorization(row);
       }
@@ -468,7 +468,7 @@ export function createConnectionService({ connections, api, host, disconnect, li
               } : { enabled: action === 'resume' }),
               syncStatus: 'pending', syncError: null,
             });
-            if (action !== 'resume') disconnect(id);
+            if (action !== 'resume') disconnect(id, `subscription_${action}`);
             onChange();
             await apply(row);
             if (action === 'delete') {

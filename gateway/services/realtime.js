@@ -3,8 +3,9 @@ import { authenticateSession } from './accounts.js';
 import { getSessionToken, isSameOrigin } from './auth.js';
 import { gatewayEvents } from './events.js';
 import { connectionsSnapshot, statusSnapshot, usersSnapshot } from './status.js';
+import { createSnapshotCache } from './snapshot-cache.js';
 
-export function attachRealtime(server, { accounts, tunnels, blocklist, secureCookies, logger, ipDetails }) {
+export function attachRealtime(server, { accounts, tunnels, blocklist, secureCookies, logger, ipDetails, diagnostics }) {
   const io = new Server(server, {
     path: '/socket.io/',
     transports: ['websocket'],
@@ -12,13 +13,29 @@ export function attachRealtime(server, { accounts, tunnels, blocklist, secureCoo
     serveClient: false,
     maxHttpBufferSize: 16384,
   });
+  const snapshots = {
+    status: createSnapshotCache(() => statusSnapshot(blocklist, ipDetails, false)),
+    adminStatus: createSnapshotCache(() => statusSnapshot(blocklist, ipDetails, true, diagnostics)),
+    users: createSnapshotCache(() => usersSnapshot(accounts)),
+    connections: createSnapshotCache(() => connectionsSnapshot(tunnels)),
+  };
   const clients = new Set();
   const notify = resource => {
     for (const client of clients) client.schedule(resource);
   };
-  const onStatus = () => notify('status');
-  const onUsers = () => notify('users');
-  const onConnections = () => notify('connections');
+  const onStatus = () => {
+    snapshots.status.invalidate();
+    snapshots.adminStatus.invalidate();
+    notify('status');
+  };
+  const onUsers = () => {
+    snapshots.users.invalidate();
+    notify('users');
+  };
+  const onConnections = () => {
+    snapshots.connections.invalidate();
+    notify('connections');
+  };
   const onHeartbeat = onConnections;
   const onRevoked = token => {
     for (const client of clients) {
@@ -106,9 +123,9 @@ export function attachRealtime(server, { accounts, tunnels, blocklist, secureCoo
             socket.emit('resource-error', { resource, message: 'Administrator access is required' });
             continue;
           }
-          const data = resource === 'status' ? statusSnapshot(blocklist, ipDetails, user.admin)
-            : resource === 'users' ? await usersSnapshot(accounts)
-              : await connectionsSnapshot(tunnels);
+          const data = await (resource === 'status'
+            ? user.admin ? snapshots.adminStatus : snapshots.status
+            : snapshots[resource]).get();
           if (socket.connected && subscriptions.has(resource)) socket.emit('resource', { resource, data });
         }
       } catch (error) {

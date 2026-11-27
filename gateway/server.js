@@ -23,6 +23,10 @@ const secureCookies = process.env.GATEWAY_SECURE_COOKIES ?? 'true';
 if (!['true', 'false'].includes(secureCookies)) {
   throw new Error('GATEWAY_SECURE_COOKIES must be true or false');
 }
+const tunnelDiagnostics = process.env.GATEWAY_TUNNEL_DIAGNOSTICS ?? 'false';
+if (!['true', 'false'].includes(tunnelDiagnostics)) {
+  throw new Error('GATEWAY_TUNNEL_DIAGNOSTICS must be true or false');
+}
 const { blocklist: storedBlocklist, accounts, connections, close: closeDatabase } = await createDatabase(process.env.DATABASE_URL);
 let resourceHistory;
 try {
@@ -52,6 +56,8 @@ try {
     trustCloudflareHeaders: trustCloudflareHeaders === 'auto' ? 'auto' : trustCloudflareHeaders === 'true',
     trustProxy: proxyDiscovery.trustProxy,
     logTraffic: true,
+    tunnelDiagnostics: tunnelDiagnostics === 'true',
+    onDiagnosticsChange: () => gatewayEvents.emit('status'),
   });
   tunnels = createConnectionService({
     connections,
@@ -80,12 +86,14 @@ const app = createGatewayApp({
   ipDetails,
   secureCookies: secureCookies === 'true',
   blocklist: gatewayProxy.blocklist,
+  diagnostics: gatewayProxy.diagnosticsSnapshot,
 });
 server = createServer(gatewayProxy.createHandler(app, { tunnels }));
 gatewayProxy.attach(server, { tunnels });
 
 attachRealtime(server, {
   accounts, tunnels, blocklist: storedBlocklist, secureCookies: secureCookies === 'true', logger, ipDetails,
+  diagnostics: gatewayProxy.diagnosticsSnapshot,
 });
 
 function serverError(error) {

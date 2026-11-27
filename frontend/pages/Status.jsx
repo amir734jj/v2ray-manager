@@ -6,6 +6,7 @@ import { api, errorMessage } from '../api.js';
 import Table from '../components/Table.jsx';
 import ResourceCharts from '../components/ResourceCharts.jsx';
 import Rate from '../components/TrafficRate.jsx';
+import TunnelDiagnostics from '../components/TunnelDiagnostics.jsx';
 import { useResource } from '../useResource.js';
 
 function Counters({ rows, countries = false }) {
@@ -86,7 +87,7 @@ function SubscriptionNames({ connections, resource }) {
 }
 
 function StatusContent({ user, subscriptionResource }) {
-  const { data: status, error: refreshError, loading, refresh } = useResource('/api/status.json');
+  const { data: status, error: refreshError, loading, refresh, lastUpdatedAt } = useResource('/api/status.json');
   const [expandedIp, setExpandedIp] = useState(new URLSearchParams(location.search).get('client'));
   const [showHistory, setShowHistory] = useState(false);
   const [error, setError] = useState('');
@@ -128,7 +129,11 @@ function StatusContent({ user, subscriptionResource }) {
             <p class="text-body-secondary">{label}</p><strong class="fs-2">{value}</strong>
           </div></div></div>)}
       </section>
-      {user.admin && <OnlineSubscriptions resource={subscriptionResource} />}
+      {user.admin && <>
+        <TunnelDiagnostics status={status} connections={subscriptionResource?.data?.connections ?? []}
+          lastUpdatedAt={lastUpdatedAt} stale={Boolean(refreshError || loading)} />
+        <OnlineSubscriptions resource={subscriptionResource} />
+      </>}
       <h2 class="h4">Gateway process resources</h2>
       <p class="text-body-secondary">CPU averages the latest sampling interval; 100% is one CPU core and usage can exceed 100%. Memory is for the gateway process only, not the host, container total, or V2Ray.</p>
       <section class="row g-3 mb-4" aria-label="Gateway process resources">

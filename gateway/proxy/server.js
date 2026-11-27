@@ -5,8 +5,9 @@ import { createGatewayHandler } from './gateway.js';
 import { createTunnelHandler } from './tunnels.js';
 import { activeTunnelIps, disconnectTunnelSockets } from './sockets.js';
 import { logUpstreamTraffic } from './upstream-traffic.js';
+import { createTunnelDiagnostics } from './diagnostics.js';
 
-export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, trustCloudflareHeaders = 'auto', trustProxy, logTraffic = true }) {
+export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, trustCloudflareHeaders = 'auto', trustProxy, logTraffic = true, tunnelDiagnostics = false, onDiagnosticsChange }) {
   const routes = new Map(lodash.map(lodash.toPairs(ports), ([protocol, port]) => [
     `/${protocol}`, `http://${upstreamHost}:${parsePort(port, `/${protocol} upstream port`)}`,
   ]));
@@ -14,11 +15,18 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
   const tunnelSockets = new Map();
   const wsConnections = new WeakMap();
   const proxy = httpProxy.createProxyServer({ ws: true, xfwd: true, changeOrigin: false });
+  const diagnostics = createTunnelDiagnostics({ enabled: tunnelDiagnostics, logger, onChange: onDiagnosticsChange });
   let stopUpstreamTraffic;
+  let stopEventLoopDiagnostics;
+
+  proxy.on('proxyReqWs', (request, incomingRequest) => {
+    wsConnections.get(incomingRequest)?.diagnostics?.request(request);
+  });
 
   proxy.on('error', (error, request, response) => {
     const connection = wsConnections.get(request);
     if (connection?.blocked) return;
+    connection?.diagnostics?.proxyError(error);
     connection?.fail();
     logger.error({ ...connection?.client, err: error }, 'Gateway proxy error');
     if ('writeHead' in response) {
@@ -30,7 +38,8 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
   });
 
   return {
-    disconnectTunnel: id => disconnectTunnelSockets(tunnelSockets, id),
+    diagnosticsSnapshot: diagnostics.snapshot,
+    disconnectTunnel: (id, reason) => disconnectTunnelSockets(tunnelSockets, id, reason),
     listTunnelIps: id => lodash.sortBy([...activeTunnelIps(tunnelSockets, id)]),
     blocklist: {
       list: blocklist.list,
@@ -40,6 +49,7 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
         for (const [socket, connection] of sockets) {
           if (connection?.client.ip === ip && !socket.destroyed) {
             connection.blocked = true;
+            connection.diagnostics?.gatewayClose('ip_blocked');
             socket.destroy();
             disconnected++;
           }
@@ -57,9 +67,10 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
       app, routes, blocklist, tunnels, logger, trustProxy, trustCloudflareHeaders,
     }),
     attach(server, { tunnels }) {
+      stopEventLoopDiagnostics = diagnostics.watchEventLoop();
       if (logTraffic) stopUpstreamTraffic = logUpstreamTraffic(proxy, logger, routes.keys(), { tunnelSockets, wsConnections });
       server.on('upgrade', createTunnelHandler({
-        tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders, trustProxy,
+        tunnels, routes, blocklist, logger, sockets, tunnelSockets, wsConnections, proxy, trustCloudflareHeaders, trustProxy, diagnostics,
       }));
       server.on('connection', socket => {
         sockets.set(socket, null);
@@ -68,7 +79,11 @@ export function createGatewayProxy({ upstreamHost, ports, blocklist, logger, tru
     },
     stop() {
       stopUpstreamTraffic?.();
-      for (const socket of sockets.keys()) socket.destroy();
+      stopEventLoopDiagnostics?.();
+      for (const [socket, connection] of sockets) {
+        connection?.diagnostics?.gatewayClose('gateway_shutdown');
+        socket.destroy();
+      }
     },
     close() {
       proxy.close();

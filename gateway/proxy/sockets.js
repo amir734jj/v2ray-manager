@@ -16,11 +16,12 @@ export function trackTunnelSocket(tunnelSockets, socket, connection) {
   });
 }
 
-export function disconnectTunnelSockets(tunnelSockets, id) {
+export function disconnectTunnelSockets(tunnelSockets, id, reason = 'subscription_disabled') {
   const group = tunnelSockets.get(id);
   if (!group) return;
   for (const [socket, connection] of group) {
     connection.blocked = true;
+    connection.diagnostics?.gatewayClose(reason);
     socket.destroy();
   }
 }

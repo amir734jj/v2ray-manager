@@ -10,6 +10,7 @@ export function useResource(path) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
 
   const refresh = useCallback(() => {
     if (socket?.connected) socket.emit('subscribe', resource);
@@ -18,7 +19,7 @@ export function useResource(path) {
   useEffect(() => {
     if (!socket) return;
     function connect() {
-      setError('');
+      setLoading(true);
       socket.emit('subscribe', resource);
     }
     function receive(message) {
@@ -26,6 +27,7 @@ export function useResource(path) {
       setData(message.data);
       setError('');
       setLoading(false);
+      setLastUpdatedAt(new Date().toISOString());
     }
     function resourceError(message) {
       if (message.resource !== resource) return;
@@ -56,5 +58,5 @@ export function useResource(path) {
     };
   }, [socket, resource]);
 
-  return { data, error, loading, refresh };
+  return { data, error, loading, refresh, lastUpdatedAt };
 }

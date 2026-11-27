@@ -1,10 +1,10 @@
 import express from 'express';
 import { statusSnapshot } from '../services';
 
-export function createStatusController({ blocklist, ipDetails, auth }) {
+export function createStatusController({ blocklist, ipDetails, auth, diagnostics }) {
   const router = express.Router({ strict: true, caseSensitive: true });
   router.get('/api/status.json', auth.requireUser, (request, response) => {
-    response.json(statusSnapshot(blocklist, ipDetails, request.user.admin));
+    response.json(statusSnapshot(blocklist, ipDetails, request.user.admin, diagnostics));
   });
   return router;
 }

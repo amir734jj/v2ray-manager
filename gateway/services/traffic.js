@@ -63,6 +63,8 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
           closedDownloadBytes: 0,
           previousUploadBytes: 0,
           previousDownloadBytes: 0,
+          sampledUploadBytes: 0,
+          sampledDownloadBytes: 0,
           lastTrafficAt: null,
           lastConnectedSince: null,
           rate: { intervalSeconds: null, uploadBytesPerSecond: null, downloadBytesPerSecond: null },
@@ -114,16 +116,21 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
     const currentTime = now();
     const intervalSeconds = (currentTime - sampledAt) / 1000;
     if (intervalSeconds <= 0) return;
-    const { uploadBytes, downloadBytes } = totals();
-    rate = {
-      intervalSeconds,
-      uploadBytesPerSecond: (uploadBytes - previousUploadBytes) / intervalSeconds,
-      downloadBytesPerSecond: (downloadBytes - previousDownloadBytes) / intervalSeconds,
-    };
+    let uploadBytes = closedUploadBytes;
+    let downloadBytes = closedDownloadBytes;
+    for (const group of groups.values()) {
+      group.sampledUploadBytes = group.closedUploadBytes;
+      group.sampledDownloadBytes = group.closedDownloadBytes;
+    }
     const observedAt = new Date(wallNow()).toISOString();
     for (const [socket, baseline] of sockets) {
-      if (!baseline.details && !baseline.group) continue;
       const current = socketTotals(socket, baseline);
+      uploadBytes += current.uploadBytes;
+      downloadBytes += current.downloadBytes;
+      if (baseline.group) {
+        baseline.group.sampledUploadBytes += current.uploadBytes;
+        baseline.group.sampledDownloadBytes += current.downloadBytes;
+      }
       observeGroupTraffic(baseline, current, observedAt);
       if (!baseline.details) continue;
       const details = baseline.details;
@@ -133,15 +140,19 @@ export function createTrafficMeter({ now = () => performance.now(), wallNow = ()
       details.sampledUploadBytes = current.uploadBytes;
       details.sampledDownloadBytes = current.downloadBytes;
     }
+    rate = {
+      intervalSeconds,
+      uploadBytesPerSecond: (uploadBytes - previousUploadBytes) / intervalSeconds,
+      downloadBytesPerSecond: (downloadBytes - previousDownloadBytes) / intervalSeconds,
+    };
     for (const group of groups.values()) {
-      const current = groupTotals(group);
       group.rate = {
         intervalSeconds,
-        uploadBytesPerSecond: (current.uploadBytes - group.previousUploadBytes) / intervalSeconds,
-        downloadBytesPerSecond: (current.downloadBytes - group.previousDownloadBytes) / intervalSeconds,
+        uploadBytesPerSecond: (group.sampledUploadBytes - group.previousUploadBytes) / intervalSeconds,
+        downloadBytesPerSecond: (group.sampledDownloadBytes - group.previousDownloadBytes) / intervalSeconds,
       };
-      group.previousUploadBytes = current.uploadBytes;
-      group.previousDownloadBytes = current.downloadBytes;
+      group.previousUploadBytes = group.sampledUploadBytes;
+      group.previousDownloadBytes = group.sampledDownloadBytes;
     }
     sampledAt = currentTime;
     previousUploadBytes = uploadBytes;

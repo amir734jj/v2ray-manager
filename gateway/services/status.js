@@ -230,8 +230,13 @@ export function snapshot(ipDetails, includeSubscriptions = false) {
   };
 }
 
-export function statusSnapshot(blocklist, ipDetails, admin = false) {
-  return { ...snapshot(ipDetails, admin), blockedIPs: blocklist ? blocklist.list() : [], blocklistAvailable: Boolean(blocklist) };
+export function statusSnapshot(blocklist, ipDetails, admin = false, diagnostics) {
+  return {
+    ...snapshot(ipDetails, admin),
+    blockedIPs: blocklist ? blocklist.list() : [],
+    blocklistAvailable: Boolean(blocklist),
+    ...(admin && diagnostics ? { diagnostics: diagnostics() } : {}),
+  };
 }
 
 export async function usersSnapshot(accounts) {

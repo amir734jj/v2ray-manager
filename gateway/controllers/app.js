@@ -8,7 +8,7 @@ import { createStatusController } from './status.js';
 import { createResourceHistoryController } from './resource-history.js';
 import { createPagesController } from './pages.js';
 
-export function createFrontendController({ blocklist, accounts, tunnels, resourceHistory, ipDetails, secureCookies = true } = {}) {
+export function createFrontendController({ blocklist, accounts, tunnels, resourceHistory, ipDetails, diagnostics, secureCookies = true } = {}) {
   const router = express.Router({ strict: true, caseSensitive: true });
   const auth = createAuth({ accounts, secureCookies });
   router.use(auth.initialize);
@@ -16,7 +16,7 @@ export function createFrontendController({ blocklist, accounts, tunnels, resourc
   router.use(createUsersController({ accounts, auth }));
   router.use(createConnectionsController({ tunnels, auth }));
   router.use(createBlocklistController({ blocklist, auth }));
-  router.use(createStatusController({ blocklist, ipDetails, auth }));
+  router.use(createStatusController({ blocklist, ipDetails, auth, diagnostics }));
   router.use(createResourceHistoryController({ resourceHistory, auth }));
   router.use(createPagesController());
   return router;
