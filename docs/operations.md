@@ -235,6 +235,8 @@ V2Ray's protocol ports. There are no intermediate proxy workers or loopback
 relay ports. The gateway owns the single PostgreSQL pool (maximum two
 connections), accounts, blocklist, realtime clients, and history store;
 establishing a tunnel does not query that pool.
+Compose sets `BUN_CONFIG_MAX_HTTP_REQUESTS=512`, twice Bun's documented default
+fetch concurrency of 256. This is not a limit on active WebSocket tunnels.
 Blocking an IP or disabling a tunnel closes its gateway sockets across
 all routes. Active sockets are indexed by subscription, so concurrent-IP checks,
 subscription IP lists, and targeted disconnects inspect only that subscription's

@@ -51,6 +51,7 @@ export function createTunnelDiagnostics({ enabled = false, logger, now = () => p
       if (!enabled) return null;
       const startedAt = now();
       const baseline = { upload: socket.bytesRead - bufferedBytes, download: socket.bytesWritten };
+      const socketPeerIp = socket.remoteAddress ?? null;
       let firstObservedClose = null;
       let gatewayReason = null;
       let socketError = null;
@@ -58,7 +59,14 @@ export function createTunnelDiagnostics({ enabled = false, logger, now = () => p
       let handshakeMs = null;
       let upstream = null;
       let upstreamBaseline;
+      let upstreamAddress = null;
+      let upstreamPort = null;
       let closed = false;
+
+      function captureUpstreamEndpoint(targetSocket) {
+        upstreamAddress = targetSocket?.remoteAddress ?? upstreamAddress;
+        upstreamPort = targetSocket?.remotePort ?? upstreamPort;
+      }
 
       function observe(side, event, error) {
         firstObservedClose ??= { side, event };
@@ -67,6 +75,7 @@ export function createTunnelDiagnostics({ enabled = false, logger, now = () => p
 
       function handshake(statusCode) {
         if (closed || handshakeStatus !== null) return;
+        captureUpstreamEndpoint(upstream);
         handshakeStatus = statusCode;
         handshakeMs = Math.max(0, now() - startedAt);
         logger.info({ ...client, observedAt: new Date().toISOString(), statusCode, handshakeMs }, 'Tunnel upstream handshake');
@@ -87,9 +96,9 @@ export function createTunnelDiagnostics({ enabled = false, logger, now = () => p
           gatewayReason,
           socketError,
           hadError: Boolean(hadError),
-          socketPeerIp: socket.remoteAddress ?? null,
-          upstreamAddress: upstream?.remoteAddress ?? null,
-          upstreamPort: upstream?.remotePort ?? null,
+          socketPeerIp,
+          upstreamAddress,
+          upstreamPort,
           uploadBytes: socket.bytesRead - baseline.upload,
           downloadBytes: socket.bytesWritten - baseline.download,
           upstreamUploadBytes: upstream ? upstream.bytesWritten - upstreamBaseline.upload : null,
@@ -109,11 +118,16 @@ export function createTunnelDiagnostics({ enabled = false, logger, now = () => p
           request.once('socket', targetSocket => {
             upstream = targetSocket;
             upstreamBaseline = { upload: upstream.bytesWritten, download: upstream.bytesRead };
+            captureUpstreamEndpoint(upstream);
+            upstream.once('connect', () => captureUpstreamEndpoint(upstream));
             upstream.once('end', () => observe('upstream', 'end'));
             upstream.once('error', error => observe('upstream', 'error', error));
             upstream.once('close', () => observe('upstream', 'close'));
           });
-          request.once('upgrade', response => handshake(response.statusCode));
+          request.once('upgrade', (response, targetSocket) => {
+            captureUpstreamEndpoint(targetSocket);
+            handshake(response.statusCode);
+          });
           request.once('response', response => handshake(response.statusCode));
           request.once('error', error => observe('upstream', 'error', error));
         },
