@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import dns from 'node:dns/promises';
 import proxyaddr from 'proxy-addr';
+import lodash from 'lodash';
 import { normalizeIp } from './blocklist.js';
 
 // https://www.cloudflare.com/ips/
@@ -78,7 +79,7 @@ export async function discoverTrustedProxies(logger) {
 }
 
 function validIp(value) {
-  return typeof value === 'string' && !value.includes('%') && isIP(value);
+  return lodash.isString(value) && !value.includes('%') && isIP(value);
 }
 
 export function clientAddress(request, { trustProxy = trustNone, trustCloudflareHeaders = 'auto', logger }) {
@@ -86,7 +87,7 @@ export function clientAddress(request, { trustProxy = trustNone, trustCloudflare
   let ip = request.socket.remoteAddress ? normalizeIp(request.socket.remoteAddress) : null;
   if (ip && trustProxy(ip) && headers['x-forwarded-for'] !== undefined) {
     const value = headers['x-forwarded-for'];
-    const chain = typeof value === 'string' ? value.split(',').map(address => address.trim()) : [];
+    const chain = lodash.isString(value) ? value.split(',').map(address => address.trim()) : [];
     if (!chain.length || chain.some(address => !validIp(address))) {
       logger.warn('Gateway connection metadata: invalid X-Forwarded-For ignored');
     } else {
@@ -103,7 +104,7 @@ export function clientAddress(request, { trustProxy = trustNone, trustCloudflare
     const clientCountry = headers['cf-ipcountry'];
     if (validIp(clientIp)) {
       ip = normalizeIp(clientIp);
-      if (typeof clientCountry === 'string' && /^(?:[A-Z]{2}|T1)$/.test(clientCountry)) {
+      if (lodash.isString(clientCountry) && /^(?:[A-Z]{2}|T1)$/.test(clientCountry)) {
         country = clientCountry;
       } else if (clientCountry !== undefined) {
         logger.warn('Gateway connection metadata: invalid CF-IPCountry ignored');

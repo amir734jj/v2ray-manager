@@ -1,5 +1,10 @@
+import { isPublicIp } from '../services/blocklist.js';
+import lodash from 'lodash';
+
 export function isIpLimitReached(ips, ip, maxConcurrentIps) {
-  return maxConcurrentIps > 0 && !ips.has(ip) && ips.size >= maxConcurrentIps;
+  if (maxConcurrentIps <= 0 || !isPublicIp(ip)) return false;
+  const publicIps = new Set(lodash.filter([...ips], isPublicIp));
+  return !publicIps.has(ip) && publicIps.size >= maxConcurrentIps;
 }
 
 export function trackTunnelSocket(tunnelSockets, socket, connection) {
@@ -30,7 +35,7 @@ export function activeTunnelIps(tunnelSockets, id) {
   const group = tunnelSockets.get(id);
   if (!group) return ips;
   for (const [socket, connection] of group) {
-    if (!socket.destroyed && !connection.blocked && connection.client.ip) {
+    if (!socket.destroyed && !connection.blocked && connection.client.ip && isPublicIp(connection.client.ip)) {
       ips.add(connection.client.ip);
     }
   }

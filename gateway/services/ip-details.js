@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import ipaddr from 'ipaddr.js';
 import { LRUCache } from 'lru-cache';
+import lodash from 'lodash';
 import { normalizeIp } from './blocklist.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -10,15 +11,15 @@ const MAX_PENDING = 4;
 
 function parseDetails(body) {
   if (!body || body.success !== true) {
-    throw new Error(`IP lookup rejected: ${typeof body?.message === 'string' ? body.message : 'invalid response'}`);
+    throw new Error(`IP lookup rejected: ${lodash.isString(body?.message) ? body.message : 'invalid response'}`);
   }
   const text = value => {
-    if (value === undefined || value === null || value === '') return null;
-    if (typeof value !== 'string' || value.length > 256) throw new Error('Invalid IP lookup text field');
+    if (lodash.isNil(value) || value === '') return null;
+    if (!lodash.isString(value) || value.length > 256) throw new Error('Invalid IP lookup text field');
     return value;
   };
   const coordinate = (value, limit) => {
-    if (value === undefined || value === null) return null;
+    if (lodash.isNil(value)) return null;
     if (!Number.isFinite(value) || Math.abs(value) > limit) throw new Error('Invalid IP lookup coordinates');
     return value;
   };
